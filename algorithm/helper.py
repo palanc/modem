@@ -110,6 +110,9 @@ class Flatten(nn.Module):
 
 def enc(cfg):
     """Returns our MoDem encoder that takes a stack of 224x224 frames as input."""
+    if cfg.img_size <= 0:
+        return None
+        
     C = int(3 * cfg.frame_stack)
     layers = [
         NormalizeImg(),
@@ -286,6 +289,10 @@ def get_demos(cfg):
     fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pt"))
     episodes = []
     for fp in fps:
+
+        if len(episodes) >= cfg.demos:
+            break 
+
         data = torch.load(fp)
         frames_dir = Path(os.path.dirname(fp)) / "frames"
         assert frames_dir.exists(), "No frames directory found for {}".format(fp)
@@ -293,10 +300,12 @@ def get_demos(cfg):
         obs = np.stack([np.array(Image.open(fp)) for fp in frame_fps]).transpose(
             0, 3, 1, 2
         )
-        state = torch.tensor(data["states"], dtype=torch.float32)
+        
         if cfg.task.startswith("mw-"):
+            state = torch.tensor(data["states"], dtype=torch.float32)
             state = torch.cat((state[:, :4], state[:, 18 : 18 + 4]), dim=-1)
         elif cfg.task.startswith("adroit-"):
+            state = torch.tensor(data["states"], dtype=torch.float32)
             if cfg.task == "adroit-door":
                 state = np.concatenate([state[:, :27], state[:, 29:32]], axis=1)
             elif cfg.task == "adroit-hammer":
@@ -305,7 +314,30 @@ def get_demos(cfg):
                 state = np.concatenate([state[:, :24], state[:, -9:-6]], axis=1)
             else:
                 raise NotImplementedError()
+        elif cfg.task.startswith('franka-'):
+            qp = data['states']['qp']
+            qv = data['states']['qv']
+            grasp_pos = data['states']['grasp_pos']
+            obj_err = data['states']['object_err']
+            tar_err = data['states']['target_err']
+            if cfg.img_size <= 0:
+                state = np.concatenate([qp,qv,grasp_pos,obj_err,tar_err],axis=1)
+            else:
+                state = np.concatenate([qp[:9],qv[:9],grasp_pos], axis=1)
+            state = torch.tensor(state, dtype=torch.float32)
+        else:
+            state = torch.tensor(data["states"], dtype=torch.float32)
         actions = np.array(data["actions"], dtype=np.float32).clip(-1, 1)
+
+        if cfg.task.startswith('franka-'):
+            assert actions.shape[1] == 8
+            aug_actions = np.zeros((actions.shape[0],actions.shape[1]-1),dtype=np.float32)
+            aug_actions[:,:3] = actions[:,:3]
+            aug_actions[:,3] = np.cos(3.14*actions[:,5])
+            aug_actions[:,4] = np.sin(3.14*actions[:,5])
+            aug_actions[:,5:] = actions[:,6:]
+            actions = aug_actions
+
         if cfg.task.startswith("mw-") or cfg.task.startswith("adroit-"):
             rewards = (
                 np.array(
@@ -319,10 +351,14 @@ def get_demos(cfg):
                 )
                 - 1.0
             )
+        elif cfg.task.startswith('franka-'):
+            rewards = np.array([_data['success' if 'success' in _data.keys() else 'goal_achieved'] for _data in data['infos']], dtype=np.float32) - 1.
         else:  # use dense rewards for DMControl
             rewards = np.array(data["rewards"])
         episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
         episodes.append(episode)
+
+    assert(len(episodes)==cfg.demos)
     return episodes
 
 

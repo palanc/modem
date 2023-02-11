@@ -36,8 +36,9 @@ class TOLD(nn.Module):
 
     def h(self, obs, state):
         """Encodes an observation into its latent representation (h)."""
-        x = self._encoder(obs)
-        x = x + self._state_encoder[0](state)
+        x = self._state_encoder[0](state)
+        if self.cfg.img_size > 0:
+            x = x + self._encoder(obs)
         x = self._state_encoder[1](x)
         return x
 
@@ -212,11 +213,13 @@ class TDMPC:
             a += std * torch.randn(self.cfg.action_dim, device=std.device)
         return a.clamp_(-1, 1)
 
-    def init_bc(self, buffer):
+    def init_bc(self, buffer, log, start_step=0):
         """Initialize policy using a behavior cloning objective (iterations: 2x #samples)."""
         self.model.train()
-        for _ in tqdm(
-            range(2 * self.cfg.demos * self.cfg.episode_length), "Pretraining policy"
+        end_step = 2 * self.cfg.demos * self.cfg.episode_length
+        bc_save_int = max(int(0.1*end_step), 10000)
+        for i in tqdm(
+            range(start_step, end_step), "Pretraining policy"
         ):
             obs, _, action, _, state, _, _, _ = buffer.sample()
             self.bc_optim.zero_grad(set_to_none=True)
@@ -228,6 +231,10 @@ class TDMPC:
                 error_if_nonfinite=False,
             )
             self.bc_optim.step()
+
+            if i > 0 and i % bc_save_int == 0:
+                log.save_model(self, 'bc_'+str(i))
+
         self.model.eval()
 
     def update_pi(self, zs):

@@ -183,15 +183,19 @@ class TimeStepToGymWrapper(object):
     def __init__(self, env, domain, task, cfg):
         obs_shp = env.observation_spec().shape
         act_shp = env.action_spec().shape
+        assert(env.observation_spec().minimum==0)
+        assert(env.observation_spec().maximum==255)
         self.observation_space = gym.spaces.Box(
-            low=np.full(obs_shp, env.observation_spec().minimum),
-            high=np.full(obs_shp, env.observation_spec().maximum),
+            low=int(env.observation_spec().minimum),
+            high=int(env.observation_spec().maximum),
             shape=obs_shp,
             dtype=np.uint8,
         )
+        assert(env.action_spec().minimum==-1)
+        assert(env.action_spec().maximum==1)
         self.action_space = gym.spaces.Box(
-            low=np.full(act_shp, env.action_spec().minimum),
-            high=np.full(act_shp, env.action_spec().maximum),
+            low=int(env.action_spec().minimum),
+            high=int(env.action_spec().maximum),
             shape=act_shp,
             dtype=env.action_spec().dtype,
         )

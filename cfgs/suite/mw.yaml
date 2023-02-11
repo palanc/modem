@@ -1,4 +1,7 @@
 suite: mw
 iterations: 4
 episode_length: 100
+img_size: 224
+lr: 3e-4
+batch_size: 256
 demo_schedule: linear(0.5, 0.25, 50000)

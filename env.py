@@ -54,6 +54,10 @@ def make_env(cfg):
         from tasks.adroit import make_adroit_env
 
         env = make_adroit_env(cfg)
+    elif domain == 'franka': # Franka
+        from tasks.franka import make_franka_env
+
+        env = make_franka_env(cfg)
     else:  # DMControl
         from tasks.dmcontrol import make_dmcontrol_env
 

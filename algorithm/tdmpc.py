@@ -274,8 +274,12 @@ class TDMPC:
         self.demo_batch_size = int(
             h.linear_schedule(self.cfg.demo_schedule, step) * self.batch_size
         )
+
+        if demo_buffer is None:
+            self.demo_batch_size = 0
+        else:
+            demo_buffer.cfg.batch_size = self.demo_batch_size
         replay_buffer.cfg.batch_size = self.batch_size - self.demo_batch_size
-        demo_buffer.cfg.batch_size = self.demo_batch_size
 
         # Sample from interaction dataset
         (
@@ -361,7 +365,8 @@ class TDMPC:
             replay_buffer.update_priorities(
                 idxs[: self.cfg.batch_size], priorities[: self.cfg.batch_size]
             )
-            demo_buffer.update_priorities(demo_idxs, priorities[self.cfg.batch_size :])
+            if demo_buffer is not None:
+                demo_buffer.update_priorities(demo_idxs, priorities[self.cfg.batch_size :])
 
         pi_loss = self.update_pi(zs)
         if step % self.cfg.update_freq == 0:

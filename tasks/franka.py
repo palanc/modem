@@ -20,7 +20,7 @@ class FrankaWrapper(gym.Wrapper):
         self.observation_space = gym.spaces.Box(
             low=0,
             high=255,
-            shape=(self._num_frames * 3, img_size, img_size),
+            shape=(self._num_frames * (3 if cfg.img_size <= 0 else 4), img_size, img_size),
             dtype=np.uint8,
         )
         act_low = -np.ones(7)
@@ -57,10 +57,16 @@ class FrankaWrapper(gym.Wrapper):
             return np.zeros((3,self.observation_space.shape[1],self.observation_space.shape[2]), dtype=np.uint8)
 
         vis_obs_dict = self.env.get_visual_obs_dict(self.env.sim_obsd)
+        
         rgb_key = 'rgb:'+self.camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-        assert rgb_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(rgb_key, vis_obs_dict.keys())
+        #assert rgb_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(rgb_key, vis_obs_dict.keys())
         rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
-        return rgb_img       
+        
+        depth_key = 'd:'+self.camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+        #assert depth_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(depth_key, vis_obs_dict.keys())
+        depth_img = 255 *vis_obs_dict[depth_key] # 1xhxw
+
+        return np.concatenate((rgb_img, depth_img), axis=0)       
 
     def _stacked_obs(self):
         assert len(self._frames) == self._num_frames

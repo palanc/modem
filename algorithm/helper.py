@@ -13,7 +13,10 @@ from PIL import Image
 from pathlib import Path
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-
+from typing import Union
+from env import make_env
+import multiprocessing as mp
+import concurrent.futures
 
 __REDUCE__ = lambda b: "mean" if b else "none"
 
@@ -113,7 +116,7 @@ def enc(cfg):
     if cfg.img_size <= 0:
         return None
         
-    C = int(3 * cfg.frame_stack)
+    C = int(cfg.obs_shape[0])
     layers = [
         NormalizeImg(),
         nn.Conv2d(C, cfg.num_channels, 7, stride=2),
@@ -296,11 +299,22 @@ def get_demos(cfg):
         data = torch.load(fp)
         frames_dir = Path(os.path.dirname(fp)) / "frames"
         assert frames_dir.exists(), "No frames directory found for {}".format(fp)
-        frame_fps = [frames_dir / fn for fn in data["frames"]]
-        obs = np.stack([np.array(Image.open(fp)) for fp in frame_fps]).transpose(
-            0, 3, 1, 2
-        )
         
+        frames = []
+        for fn in data["frames"]:
+            if isinstance(fn, list):
+                assert(len(fn) == 2)
+                assert(cfg.camera_view in str(fn[0]) and 'rgb' in str(fn[0]))
+                assert(cfg.camera_view in str(fn[1]) and 'depth' in str(fn[1]))
+                rgb_image = np.array(Image.open(frames_dir/fn[0])).transpose(2,0,1)
+                depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[1])),axis=0)
+                frames.append(np.concatenate([rgb_image,depth_image],axis=0))             
+            else:
+                img = np.array(Image.open(frames_dir / fn))
+                frames.append(img.transpose(2,0,1))
+        
+        obs = np.stack(frames)
+
         if cfg.task.startswith("mw-"):
             state = torch.tensor(data["states"], dtype=torch.float32)
             state = torch.cat((state[:, :4], state[:, 18 : 18 + 4]), dim=-1)
@@ -323,7 +337,7 @@ def get_demos(cfg):
             if cfg.img_size <= 0:
                 state = np.concatenate([qp,qv,grasp_pos,obj_err,tar_err],axis=1)
             else:
-                state = np.concatenate([qp[:9],qv[:9],grasp_pos], axis=1)
+                state = np.concatenate([qp[:,:9],qv[:,:9],grasp_pos], axis=1)
             state = torch.tensor(state, dtype=torch.float32)
         else:
             state = torch.tensor(data["states"], dtype=torch.float32)
@@ -361,6 +375,217 @@ def get_demos(cfg):
     assert(len(episodes)==cfg.demos)
     return episodes
 
+def gather_paths_parallel(
+    cfg,
+    start_state: dict,
+    act_list: np.ndarray,
+    base_seed: int,
+    paths_per_cpu: int,
+    num_cpu: int = 1,
+):
+    """Parallel wrapper around the gather paths function."""
+
+    if num_cpu == 1:
+        input_dict = dict(
+            cfg=cfg,
+            start_state=start_state,
+            act_list=act_list,
+            base_seed=base_seed
+        )
+        return generate_paths(**input_dict)
+
+    # do multiprocessing only if necessary
+    input_dict_list = []
+
+    for i in range(num_cpu):
+        cpu_seed = base_seed + i * paths_per_cpu
+        input_dict = dict(
+            cfg=cfg,
+            start_state=start_state,
+            act_list=act_list,
+            base_seed=cpu_seed
+        )
+        input_dict_list.append(input_dict)
+
+    results = _try_multiprocess_mp(
+        func=generate_paths,
+        input_dict_list=input_dict_list,
+        num_cpu=num_cpu,
+        max_process_time=300,
+        max_timeouts=4,
+    )
+    paths = []
+    for result in results:
+        for path in result:
+            paths.append(path)
+
+    return paths
+
+
+def _try_multiprocess_mp(
+    func: callable,
+    input_dict_list: list,
+    num_cpu: int = 1,
+    max_process_time: int = 500,
+    max_timeouts: int = 4,
+    *args,
+    **kwargs,
+):
+    """Run multiple copies of provided function in parallel using multiprocessing."""
+
+    # Base case
+    if max_timeouts == 0:
+        return None
+
+    pool = mp.Pool(processes=num_cpu, maxtasksperchild=None)
+    parallel_runs = [
+        pool.apply_async(func, kwds=input_dict) for input_dict in input_dict_list
+    ]
+    try:
+        results = [p.get(timeout=max_process_time) for p in parallel_runs]
+    except Exception as e:
+        print(str(e))
+        print("Timeout Error raised... Trying again")
+        pool.close()
+        #pool.terminate()
+        pool.join()
+        return _try_multiprocess_mp(
+            func, input_dict_list, num_cpu, max_process_time, max_timeouts - 1
+        )
+
+    pool.close()
+    #pool.terminate()
+    pool.join()
+    return results
+
+def generate_paths(
+    cfg,
+    start_state: dict,
+    act_list: list,
+    base_seed: int
+) -> list:
+    """Generates perturbed action sequences and then performs rollouts.
+
+    Args:
+        env:
+            Environment, either as a gym env class, callable, or env_id string.
+        start_state:
+            Dictionary describing a single start state. All rollouts begin from this state.
+        base_act:
+            A numpy array of base actions to which we add noise to generate action sequences for rollouts.
+        filter_coefs:
+            We use these coefficients to generate colored for action perturbation
+        base_seed:
+            Seed for generating random actions and rollouts.
+        num_paths:
+            Number of paths to rollout.
+        env_kwargs:
+            Any kwargs needed to instantiate the environment. Used only if env is a callable.
+
+    Returns:
+        A list of paths that describe the resulting rollout. Each path is a list.
+    """
+    set_seed(base_seed)
+
+    paths = do_env_rollout(cfg, start_state, act_list)
+    return paths
+
+def set_seed(seed=None):
+    """
+    Set all seeds to make results reproducible
+    :param seed: an integer to your choosing (default: None)
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
+        os.environ["PYTHONHASHSEED"] = str(seed)
+
+def do_env_rollout(
+    cfg,
+    start_state: dict,
+    act_list: list
+) -> list:
+    """Rollout action sequence in env from provided initial states.
+
+    Instantiates requested environment. Sets environment to provided initial states.
+    Then rollouts out provided action sequence. Returns result in paths format (list of dicts).
+
+    Args:
+        env:
+            Environment, either as a gym env class, callable, or env_id string.
+        start_state:
+            Dictionary describing a single start state. All rollouts begin from this state.
+        act_list:
+            List of numpy arrays containing actions that will be rolled out in open loop.
+        env_kwargs:
+            Any kwargs needed to instantiate the environment. Used only if env is a callable.
+
+    Returns:
+        A list of paths that describe the resulting rollout. Each path is a list.
+    """
+
+    # Not all low-level envs are picklable. For generalizable behavior,
+    # we have the option to instantiate the environment within the rollout function.
+    e = make_env(cfg)
+    e.reset()
+    e.unwrapped.real_step = False  # indicates simulation for purpose of trajectory optimization
+    paths = []
+    H = act_list[0].shape[0]  # horizon
+    N = len(act_list)  # number of rollout trajectories (per process)
+    for i in range(N):
+        if cfg.task.startswith('adroit-') or cfg.task.startswith('franka-'):
+            e.unwrapped.set_env_state(start_state)
+        else:
+            e.unwrapped.physics.set_state(start_state)
+        obs = []
+        act = []
+        rewards = []
+        env_infos = []
+        states = []
+
+        for k in range(H):
+            s, r, d, ifo = e.step(act_list[i][k])
+
+            act.append(act_list[i][k])
+            obs.append(s)
+            rewards.append(r)
+            env_infos.append(ifo)            
+            if cfg.task.startswith('adroit-') or cfg.task.startswith('franka-'):
+                states.append(e.unwrapped.get_env_state())
+            else:
+                states.append(e.unwrapped.physics.get_state())
+            
+        path = dict(
+            observations=np.array(obs),
+            actions=np.array(act),
+            rewards=np.array(rewards),
+            env_infos=stack_tensor_dict_list(env_infos),
+            states=states,
+        )
+        paths.append(path)
+
+    return paths
+
+def stack_tensor_dict_list(tensor_dict_list):
+    """
+    Stack a list of dictionaries of {tensors or dictionary of tensors}.
+    :param tensor_dict_list: a list of dictionaries of {tensors or dictionary of tensors}.
+    :return: a dictionary of {stacked tensors or dictionary of stacked tensors}
+    """
+    keys = list(tensor_dict_list[0].keys())
+    ret = dict()
+    for k in keys:
+        example = tensor_dict_list[0][k]
+        if isinstance(example, dict):
+            v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
+        else:
+            v = stack_tensor_list([x[k] for x in tensor_dict_list])
+        ret[k] = v
+    return ret
+
+def stack_tensor_list(tensor_list):
+    return np.array(tensor_list)
 
 class ReplayBuffer(object):
     """
@@ -372,7 +597,7 @@ class ReplayBuffer(object):
         self.cfg = cfg
         self.device = torch.device("cpu")
         self.capacity = 2 * cfg.train_steps + 1
-        obs_shape = (3, *cfg.obs_shape[-2:])
+        obs_shape = (cfg.obs_shape[0]//cfg.frame_stack, *cfg.obs_shape[-2:])
         self._state_dim = cfg.state_dim
         self._obs = torch.empty(
             (self.capacity + 1, *obs_shape), dtype=torch.uint8, device=self.device
@@ -410,10 +635,10 @@ class ReplayBuffer(object):
         return self
 
     def add(self, episode: Episode):
-        obs = episode.obs[:-1, -3:]
-        if episode.obs.shape[1] == 3:
+        obs = episode.obs[:-1, -(self.cfg.obs_shape[0]//self.cfg.frame_stack):]
+        if episode.obs.shape[1] == (self.cfg.obs_shape[0]//self.cfg.frame_stack):
             last_obs = episode.obs[-self.cfg.frame_stack :].view(
-                self.cfg.frame_stack * 3, *self.cfg.obs_shape[-2:]
+                self.cfg.obs_shape[0], *self.cfg.obs_shape[-2:]
             )
         else:
             last_obs = episode.obs[-1]
@@ -449,17 +674,17 @@ class ReplayBuffer(object):
 
     def _get_obs(self, arr, idxs):
         obs = torch.empty(
-            (self.cfg.batch_size, self.cfg.frame_stack * 3, *arr.shape[-2:]),
+            (self.cfg.batch_size, self.cfg.obs_shape[0], *arr.shape[-2:]),
             dtype=arr.dtype,
             device=torch.device("cuda"),
         )
-        obs[:, -3:] = arr[idxs].cuda(non_blocking=True)
+        obs[:, -(self.cfg.obs_shape[0]//self.cfg.frame_stack):] = arr[idxs].cuda(non_blocking=True)
         _idxs = idxs.clone()
         mask = torch.ones_like(_idxs, dtype=torch.bool)
         for i in range(1, self.cfg.frame_stack):
             mask[_idxs % self.cfg.episode_length == 0] = False
             _idxs[mask] -= 1
-            obs[:, -(i + 1) * 3 : -i * 3] = arr[_idxs].cuda(non_blocking=True)
+            obs[:, -(i + 1) * (self.cfg.obs_shape[0]//self.cfg.frame_stack) : -i * (self.cfg.obs_shape[0]//self.cfg.frame_stack)] = arr[_idxs].cuda(non_blocking=True)
         return obs.float()
 
     def sample(self):
@@ -478,7 +703,7 @@ class ReplayBuffer(object):
             if self.cfg.frame_stack > 1
             else self._obs[idxs].cuda(non_blocking=True)
         )
-        next_obs_shape = (3 * self.cfg.frame_stack, *self._last_obs.shape[-2:])
+        next_obs_shape = ((self.cfg.obs_shape[0]//self.cfg.frame_stack) * self.cfg.frame_stack, *self._last_obs.shape[-2:])
         next_obs = torch.empty(
             (self.cfg.horizon + 1, self.cfg.batch_size, *next_obs_shape),
             dtype=obs.dtype,

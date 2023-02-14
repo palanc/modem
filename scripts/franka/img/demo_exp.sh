@@ -1,18 +1,20 @@
 #!/bin/bash
 
-#python train.py \
-#    task=franka-FrankaPickPlaceRandom_v2d  \
-#    suite=franka \
-#    exp_name=test \
-#    discount=0.95 \
-#    train_steps=200000 \
-#    seed=1 \
-#    demos=3 \
-#    img_size=224 \
-#    lr=3e-4 \
-#    batch_size=256 \
-#    seed_steps=100
-
+<<test
+python train.py \
+    task=franka-FrankaPickPlaceRandom_v2d  \
+    suite=franka \
+    exp_name=test \
+    discount=0.95 \
+    train_steps=200000 \
+    seed=1 \
+    demos=3 \
+    img_size=224 \
+    lr=3e-4 \
+    batch_size=256 \
+    seed_steps=100 \
+    eval_episodes=3
+test
 # img_demo_exp: Vary the number of demos
 
 # Vary the number of demos

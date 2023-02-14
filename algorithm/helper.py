@@ -108,33 +108,29 @@ class Flatten(nn.Module):
         super().__init__()
 
     def forward(self, x):
-        return x.view(x.size(0), -1)
-
+        return x.contiguous().view(x.size(0), -1)
 
 def enc(cfg):
     """Returns our MoDem encoder that takes a stack of 224x224 frames as input."""
     if cfg.img_size <= 0:
         return None
         
-    C = int(cfg.obs_shape[0])
-    layers = [
-        NormalizeImg(),
-        nn.Conv2d(C, cfg.num_channels, 7, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(cfg.num_channels, cfg.num_channels, 5, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2),
-        nn.ReLU(),
-        nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2),
-        nn.ReLU(),
-    ]
-    out_shape = _get_out_shape((C, cfg.img_size, cfg.img_size), layers)
-    layers.extend([Flatten(), nn.Linear(np.prod(out_shape), cfg.latent_dim)])
-    return nn.Sequential(*layers)
+    C = int(cfg.obs_shape[1])
+    encoders = []
+    for _ in range(cfg.obs_shape[0]):
+        layers = [
+            NormalizeImg(),
+            nn.Conv2d(C, cfg.num_channels, 7, stride=2), nn.ReLU(),
+            nn.Conv2d(cfg.num_channels, cfg.num_channels, 5, stride=2), nn.ReLU(),
+            nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU(),
+            nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU(),
+            nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU(),
+            nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU(),
+        ]
+        out_shape = _get_out_shape((C, cfg.img_size, cfg.img_size), layers)
+        layers.extend([Flatten(), nn.Linear(np.prod(out_shape), cfg.latent_dim)])
+        encoders.append(nn.Sequential(*layers))
+    return encoders
 
 
 def state_enc(cfg):
@@ -191,8 +187,11 @@ class RandomShiftsAug(nn.Module):
         )  # maintain same padding ratio as in original implementation
 
     def forward(self, x):
-        n, _, h, w = x.size()
+        n, v, c, h, w = x.size()
         assert h == w
+
+        x = x.reshape(-1,*x.shape[-3:])
+
         padding = tuple([self.pad] * 4)
         x = F.pad(x, padding, "replicate")
         eps = 1.0 / (h + 2 * self.pad)
@@ -207,7 +206,7 @@ class RandomShiftsAug(nn.Module):
         )
         shift *= 2.0 / (h + 2 * self.pad)
         grid = base_grid + shift
-        return F.grid_sample(x, grid, padding_mode="zeros", align_corners=False)
+        return F.grid_sample(x, grid, padding_mode="zeros", align_corners=False).reshape((n,v,c,h,w))
 
 
 class Episode(object):
@@ -303,15 +302,26 @@ def get_demos(cfg):
         frames = []
         for fn in data["frames"]:
             if isinstance(fn, list):
-                assert(len(fn) == 2)
-                assert(cfg.camera_view in str(fn[0]) and 'rgb' in str(fn[0]))
-                assert(cfg.camera_view in str(fn[1]) and 'depth' in str(fn[1]))
-                rgb_image = np.array(Image.open(frames_dir/fn[0])).transpose(2,0,1)
-                depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[1])),axis=0)
-                frames.append(np.concatenate([rgb_image,depth_image],axis=0))             
+                views = []
+                for view in cfg.camera_views:
+                    fn_idx = 0
+                    while fn_idx < len(fn):
+                        if view in str(fn[fn_idx]):
+                            assert('rgb' in str(fn[fn_idx]))
+                            assert(view in str(fn[fn_idx+1]) and 'depth' in str(fn[fn_idx+1]))
+                            rgb_image = np.array(Image.open(frames_dir/fn[fn_idx])).transpose(2,0,1)
+                            depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[fn_idx+1])),axis=0)
+                            img = np.concatenate([rgb_image,depth_image],axis=0)
+                            views.append(img)
+                            break
+                        fn_idx += 2
+                    assert(fn_idx < len(fn))
+                assert(len(views)==len(cfg.camera_views))
+                views = np.stack(views, axis=0)
+                frames.append(views)             
             else:
                 img = np.array(Image.open(frames_dir / fn))
-                frames.append(img.transpose(2,0,1))
+                frames.append(np.expand_dims(img.transpose(2,0,1),axis=0))
         
         obs = np.stack(frames)
 
@@ -597,7 +607,7 @@ class ReplayBuffer(object):
         self.cfg = cfg
         self.device = torch.device("cpu")
         self.capacity = 2 * cfg.train_steps + 1
-        obs_shape = (cfg.obs_shape[0]//cfg.frame_stack, *cfg.obs_shape[-2:])
+        obs_shape = (cfg.obs_shape[0], cfg.obs_shape[1]//cfg.frame_stack, *cfg.obs_shape[-2:])
         self._state_dim = cfg.state_dim
         self._obs = torch.empty(
             (self.capacity + 1, *obs_shape), dtype=torch.uint8, device=self.device
@@ -635,12 +645,14 @@ class ReplayBuffer(object):
         return self
 
     def add(self, episode: Episode):
-        obs = episode.obs[:-1, -(self.cfg.obs_shape[0]//self.cfg.frame_stack):]
-        if episode.obs.shape[1] == (self.cfg.obs_shape[0]//self.cfg.frame_stack):
-            last_obs = episode.obs[-self.cfg.frame_stack :].view(
-                self.cfg.obs_shape[0], *self.cfg.obs_shape[-2:]
-            )
+        assert(len(episode.obs.shape)==5)
+        obs = episode.obs[:-1, :, -(self.cfg.obs_shape[1]//self.cfg.frame_stack):]
+        if episode.obs.shape[2] == (self.cfg.obs_shape[1]//self.cfg.frame_stack):
+            last_obs = torch.split(episode.obs[-self.cfg.frame_stack:],1,dim=0)
+            last_obs = torch.cat(last_obs, dim=2)
+            last_obs = torch.squeeze(last_obs, dim=0)
         else:
+            assert(episode.obs.shape[2] == self.cfg.obs_shape[1])
             last_obs = episode.obs[-1]
         self._obs[self.idx : self.idx + self.cfg.episode_length] = obs
         self._last_obs[self.idx // self.cfg.episode_length] = last_obs
@@ -674,17 +686,17 @@ class ReplayBuffer(object):
 
     def _get_obs(self, arr, idxs):
         obs = torch.empty(
-            (self.cfg.batch_size, self.cfg.obs_shape[0], *arr.shape[-2:]),
+            (self.cfg.batch_size, self.cfg.obs_shape[0], self.cfg.obs_shape[1], *arr.shape[-2:]),
             dtype=arr.dtype,
             device=torch.device("cuda"),
         )
-        obs[:, -(self.cfg.obs_shape[0]//self.cfg.frame_stack):] = arr[idxs].cuda(non_blocking=True)
+        obs[:, :,-(self.cfg.obs_shape[1]//self.cfg.frame_stack):] = arr[idxs].cuda(non_blocking=True)
         _idxs = idxs.clone()
         mask = torch.ones_like(_idxs, dtype=torch.bool)
         for i in range(1, self.cfg.frame_stack):
             mask[_idxs % self.cfg.episode_length == 0] = False
             _idxs[mask] -= 1
-            obs[:, -(i + 1) * (self.cfg.obs_shape[0]//self.cfg.frame_stack) : -i * (self.cfg.obs_shape[0]//self.cfg.frame_stack)] = arr[_idxs].cuda(non_blocking=True)
+            obs[:,:, -(i + 1) * (self.cfg.obs_shape[1]//self.cfg.frame_stack) : -i * (self.cfg.obs_shape[1]//self.cfg.frame_stack)] = arr[_idxs].cuda(non_blocking=True)
         return obs.float()
 
     def sample(self):
@@ -703,7 +715,7 @@ class ReplayBuffer(object):
             if self.cfg.frame_stack > 1
             else self._obs[idxs].cuda(non_blocking=True)
         )
-        next_obs_shape = ((self.cfg.obs_shape[0]//self.cfg.frame_stack) * self.cfg.frame_stack, *self._last_obs.shape[-2:])
+        next_obs_shape = (self.cfg.obs_shape[0], self.cfg.obs_shape[1], *self._last_obs.shape[-2:])
         next_obs = torch.empty(
             (self.cfg.horizon + 1, self.cfg.batch_size, *next_obs_shape),
             dtype=obs.dtype,

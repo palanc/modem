@@ -70,11 +70,16 @@ class FrameStackWrapper(dm_env.Environment):
         assert pixels_key in wrapped_obs_spec
 
         pixels_shape = wrapped_obs_spec[pixels_key].shape
-        if len(pixels_shape) == 4:
-            pixels_shape = pixels_shape[1:]
+
+        if len(pixels_shape) < 4:
+            pixels_shape = np.expand_dims(pixels_shape,axis=0)
+        elif len(pixels_shape>4):
+            assert False
+        assert(pixels_shape[0]==1 and len(pixels_shape)==4)
+        
         self._obs_spec = specs.BoundedArray(
             shape=np.concatenate(
-                [[pixels_shape[2] * num_frames], pixels_shape[:2]], axis=0
+                [[pixels_shape[0],pixels_shape[3] * num_frames], pixels_shape[1:3]], axis=0
             ),
             dtype=np.uint8,
             minimum=0,
@@ -84,14 +89,19 @@ class FrameStackWrapper(dm_env.Environment):
 
     def _transform_observation(self, time_step):
         assert len(self._frames) == self._num_frames
-        obs = np.concatenate(list(self._frames), axis=0)
+        obs = np.concatenate(list(self._frames), axis=1)
         return time_step._replace(observation=obs)
 
     def _extract_pixels(self, time_step):
         pixels = time_step.observation[self._pixels_key]
-        if len(pixels.shape) == 4:
-            pixels = pixels[0]
-        return pixels.transpose(2, 0, 1).copy()
+
+        if len(pixels.shape) < 4:
+            pixels = np.expand_dims(pixels, axis=0)
+        elif len(pixels.shape) > 4:
+            assert(False)
+        assert(pixels.shape[0]==1 and len(pixels.shape)==4)
+
+        return pixels.transpose(0,3,1,2).copy()
 
     def reset(self):
         time_step = self._env.reset()

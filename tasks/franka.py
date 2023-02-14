@@ -17,16 +17,17 @@ class FrankaWrapper(gym.Wrapper):
         self._num_frames = cfg.get("frame_stack", 1)
         self._frames = deque([], maxlen=self._num_frames)
         img_size = max(cfg.img_size, 10)
+        self.camera_names = cfg.get("camera_views", ["view_1"])
         self.observation_space = gym.spaces.Box(
             low=0,
             high=255,
-            shape=(self._num_frames * (3 if cfg.img_size <= 0 else 4), img_size, img_size),
+            shape=(len(self.camera_names), self._num_frames * (3 if cfg.img_size <= 0 else 4), img_size, img_size),
             dtype=np.uint8,
         )
         act_low = -np.ones(7)
         act_high = np.ones(7)
         self.action_space = gym.spaces.Box(act_low, act_high, dtype=np.float32)
-        self.camera_name = cfg.get("camera_view", "view_1")
+        
 
     @property
     def state(self):
@@ -54,23 +55,28 @@ class FrankaWrapper(gym.Wrapper):
 
     def _get_pixel_obs(self):
         if self.cfg.img_size <= 0:
-            return np.zeros((3,self.observation_space.shape[1],self.observation_space.shape[2]), dtype=np.uint8)
+            return np.zeros((self.observation_space.shape[0],
+                             self.observation_space.shape[1]//self._num_frames,
+                             self.observation_space.shape[2],
+                             self.observation_space.shape[3]), dtype=np.uint8)
 
         vis_obs_dict = self.env.get_visual_obs_dict(self.env.sim_obsd)
-        
-        rgb_key = 'rgb:'+self.camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-        #assert rgb_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(rgb_key, vis_obs_dict.keys())
-        rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
-        
-        depth_key = 'd:'+self.camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-        #assert depth_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(depth_key, vis_obs_dict.keys())
-        depth_img = 255 *vis_obs_dict[depth_key] # 1xhxw
-
-        return np.concatenate((rgb_img, depth_img), axis=0)       
+        img_views = []
+        for camera_name in self.camera_names:
+            rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+            #assert rgb_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(rgb_key, vis_obs_dict.keys())
+            rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
+            
+            depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+            #assert depth_key in vis_obs_dict, 'Missing viz key {}, available {}'.format(depth_key, vis_obs_dict.keys())
+            depth_img = 255 *vis_obs_dict[depth_key] # 1xhxw
+            
+            img_views.append(np.concatenate((rgb_img, depth_img), axis=0))
+        return np.stack(img_views, axis=0)     
 
     def _stacked_obs(self):
         assert len(self._frames) == self._num_frames
-        return np.concatenate(list(self._frames), axis=0)
+        return np.concatenate(list(self._frames), axis=1)
 
     def reset(self):
         obs = self.env.reset()
@@ -107,7 +113,7 @@ class FrankaWrapper(gym.Wrapper):
                 mode="offscreen",
                 width=width,
                 height=height,
-                camera_name=self.camera_name,
+                camera_name=self.camera_names[0],
             ),
             axis=0,
         )

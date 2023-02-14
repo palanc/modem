@@ -20,11 +20,11 @@ class AdroitWrapper(gym.Wrapper):
         self.observation_space = gym.spaces.Box(
             low=0,
             high=255,
-            shape=(self._num_frames * 3, cfg.img_size, cfg.img_size),
+            shape=(1, self._num_frames * 3, cfg.img_size, cfg.img_size),
             dtype=np.uint8,
         )
         self.action_space = self.env.action_space
-        self.camera_name = cfg.get("camera_view", "view_1")
+        self.camera_names = cfg.get("camera_views", ["view_1"])
 
     @property
     def state(self):
@@ -67,13 +67,14 @@ class AdroitWrapper(gym.Wrapper):
         raise NotImplementedError()
 
     def _get_pixel_obs(self):
-        return self.render(width=self.cfg.img_size, height=self.cfg.img_size).transpose(
-            2, 0, 1
-        )
+        return np.expand_dims(
+                self.render(width=self.cfg.img_size, 
+                            height=self.cfg.img_size).transpose(2, 0, 1),
+               axis=0)
 
     def _stacked_obs(self):
         assert len(self._frames) == self._num_frames
-        return np.concatenate(list(self._frames), axis=0)
+        return np.concatenate(list(self._frames), axis=1)
 
     def reset(self):
         obs = self.env.reset()
@@ -101,7 +102,7 @@ class AdroitWrapper(gym.Wrapper):
                 mode="offscreen",
                 width=width,
                 height=height,
-                camera_name=self.camera_name,
+                camera_name=self.camera_names[0],
             ),
             axis=0,
         )

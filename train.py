@@ -121,6 +121,7 @@ def train(cfg: dict):
 
     # Run training
     episode_idx, start_time = 0, time.time()
+    start_step = start_step // cfg.action_repeat
     for step in range(start_step, start_step+cfg.train_steps + cfg.episode_length, cfg.episode_length):
 
         # Collect trajectory

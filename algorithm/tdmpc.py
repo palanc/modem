@@ -219,22 +219,32 @@ class TDMPC:
         self.model.train()
         end_step = 2 * self.cfg.demos * self.cfg.episode_length
         bc_save_int = max(int(0.1*end_step), 10000)
+        mse_total = 0.0
         for i in tqdm(
             range(start_step, end_step), "Pretraining policy"
         ):
             obs, _, action, _, state, _, _, _ = buffer.sample()
             self.bc_optim.zero_grad(set_to_none=True)
             a = self.model.pi(self.model.h(self.aug(obs), state))
-            h.mse(a, action[0], reduce=True).backward()
+            mse = h.mse(a, action[0], reduce=True)
+            mse.backward()
             torch.nn.utils.clip_grad_norm_(
                 self.model.parameters(),
                 self.cfg.grad_clip_norm,
                 error_if_nonfinite=False,
             )
             self.bc_optim.step()
+            mse_total += mse.item()
 
             if i > 0 and i % bc_save_int == 0:
                 log.save_model(self, 'bc_'+str(i))
+
+            if self.cfg.bc_only and i % 50 == 0 and i > 0:
+                train_metrics = {
+                    'env_step': i,
+                    'bc_mse': mse_total / 50}
+                log.log(train_metrics, category='train')
+                mse_total = 0.0		
 
         self.model.eval()
 

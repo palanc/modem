@@ -73,6 +73,9 @@ action_shape: ???
 action_dim: ???
 state_dim: ???
 
+bc_only: false
+real_robot: false
+
 hydra:
     job:
         name: ${exp_name}

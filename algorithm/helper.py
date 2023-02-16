@@ -18,6 +18,8 @@ from env import make_env
 import multiprocessing as mp
 import concurrent.futures
 
+from tasks.franka import recompute_real_rwd
+
 __REDUCE__ = lambda b: "mean" if b else "none"
 
 
@@ -376,7 +378,10 @@ def get_demos(cfg):
                 - 1.0
             )
         elif cfg.task.startswith('franka-'):
-            rewards = np.array([_data['success' if 'success' in _data.keys() else 'goal_achieved'] for _data in data['infos']], dtype=np.float32) - 1.
+            if cfg.real_robot:
+                rewards = recompute_real_rwd(cfg, state)
+            else:                
+                rewards = np.array([_data['success' if 'success' in _data.keys() else 'goal_achieved'] for _data in data['infos']], dtype=np.float32) - 1.
         else:  # use dense rewards for DMControl
             rewards = np.array(data["rewards"])
         episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)

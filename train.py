@@ -25,26 +25,44 @@ from copy import deepcopy
 import logger
 import hydra
 
+from mj_envs.utils.collect_modem_rollouts_real import check_grasp_success
+from tasks.franka import recompute_real_rwd
+
 torch.backends.cudnn.benchmark = True
 
 
-def evaluate(env, agent, cfg, step, env_step, video):
+def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
     episode_rewards = []
     episode_successes = []
     for i in range(cfg.eval_episodes):
         obs, done, ep_reward, t = env.reset(), False, 0, 0
+        states = [env.state]
         if video:
             video.init(env, enabled=(i == 0))
         while not done:
-            action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
+            if policy_rollout:
+                obs = torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0)
+                state = torch.tensor(env.state, dtype=torch.float32, device=agent.device).unsqueeze(0)
+                action = torch.squeeze(agent.model.pi(agent.model.h(obs, state), 0.0).detach(),dim=0)
+            else:
+                action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
             obs, reward, done, info = env.step(action.cpu().numpy())
+            states.append(env.state)
             ep_reward += reward
             if video:
                 video.record(env)
             t += 1
+        ep_success = info.get('success', 0)
+        if cfg.real_robot:
+            _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
+            if grasp_success:
+                states = torch.stack(states, dim=0)
+                ep_reward = torch.sum(recompute_real_rwd(cfg, states)).item()
+            ep_success = 1 if grasp_success else 0
+
         episode_rewards.append(ep_reward)
-        episode_successes.append(info.get("success", 0))
+        episode_successes.append(ep_success)
         if video:
             video.save(env_step)
     return np.nanmean(episode_rewards), np.nanmean(episode_successes)
@@ -119,8 +137,16 @@ def train(cfg: dict):
             agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step)
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
+    if cfg.bc_only:
+        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, policy_rollout=True)
+        common_metrics = {"env_step": 0, "episode_reward": eval_rew, "episode_success": eval_succ}
+        L.log(common_metrics, category="eval")
+        print('Eval reward: {}, Eval success: {}'.format(eval_rew, eval_succ))
+        exit()
+
     # Run training
     episode_idx, start_time = 0, time.time()
+    start_step = start_step // cfg.action_repeat
     for step in range(start_step, start_step+cfg.train_steps + cfg.episode_length, cfg.episode_length):
 
         # Collect trajectory
@@ -133,6 +159,12 @@ def train(cfg: dict):
         assert (
             len(episode) == cfg.episode_length
         ), f"Episode length {len(episode)} != {cfg.episode_length}"
+        
+        if cfg.real_robot:
+            _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
+            if grasp_success:
+                episode.reward = recompute_real_rwd(cfg, episode.state)
+                episode.cumulative_reward = torch.sum(episode.reward).item()
         buffer += episode
 
         # Update model

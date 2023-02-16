@@ -138,6 +138,9 @@ def train(cfg: dict):
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
     if cfg.bc_only:
+        L.save_model(agent, 0)
+        print(colored(f'Model has been checkpointed', 'yellow', attrs=['bold']))
+                        
         eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, policy_rollout=True)
         common_metrics = {"env_step": 0, "episode_reward": eval_rew, "episode_success": eval_succ}
         L.log(common_metrics, category="eval")

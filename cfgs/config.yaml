@@ -75,6 +75,7 @@ state_dim: ???
 
 bc_only: false
 real_robot: false
+bc_model_fp: ???
 
 hydra:
     job:

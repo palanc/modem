@@ -29,7 +29,7 @@ from mj_envs.utils.collect_modem_rollouts_real import check_grasp_success
 from tasks.franka import recompute_real_rwd
 
 torch.backends.cudnn.benchmark = True
-
+import pickle
 
 def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
@@ -37,18 +37,18 @@ def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False):
     episode_successes = []
     for i in range(cfg.eval_episodes):
         obs, done, ep_reward, t = env.reset(), False, 0, 0
-        states = [env.state]
+        states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
         if video:
             video.init(env, enabled=(i == 0))
         while not done:
             if policy_rollout:
                 obs = torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0)
                 state = torch.tensor(env.state, dtype=torch.float32, device=agent.device).unsqueeze(0)
-                action = torch.squeeze(agent.model.pi(agent.model.h(obs, state), 0.0).detach(),dim=0)
+                action = torch.squeeze(agent.model.pi(agent.model.h(obs, state), cfg.min_std).detach(),dim=0)
             else:
                 action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
             obs, reward, done, info = env.step(action.cpu().numpy())
-            states.append(env.state)
+            states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
             ep_reward += reward
             if video:
                 video.record(env)
@@ -71,6 +71,10 @@ def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
     model_fp = None
     step = 0
 
+    if cfg.real_robot:
+        while step < cfg.seed_steps:
+            step += cfg.save_freq
+
     while True:
         if os.path.exists(checkpt_dir / f'{str(step)}.pt'):
             model_fp = checkpt_dir / f'{str(step)}.pt'
@@ -79,6 +83,9 @@ def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
             step = max(0, step)
             break
         step += cfg.save_freq
+    
+    if model_fp is None:
+        step = 0
 
     if model_fp is None and cfg.get('bc_model_fp', None) is not None:
         if os.path.exists(cfg.bc_model_fp):
@@ -113,6 +120,11 @@ def train(cfg: dict):
     set_seed(cfg.seed)
     work_dir = Path(cfg.logging_dir) / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
+
+    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}" 
+    if (not os.path.isdir(episode_dir)):
+        os.makedirs(episode_dir)
+
     env, agent = make_env(cfg), TDMPC(cfg)
     demo_buffer = ReplayBuffer(deepcopy(cfg)) if cfg.get("demos", 0) > 0 else None
     buffer = ReplayBuffer(cfg)
@@ -124,6 +136,15 @@ def train(cfg: dict):
     if model_fp is not None:
         print('Loading agent '+str(model_fp))
         agent.load(model_fp)        
+
+    # Load past episodes
+    if cfg.real_robot:
+        for i in range(start_step//cfg.episode_length):
+            episode_fn = 'rollout'+f'{(i):010d}.pt'
+            episode_path = episode_dir+'/'+episode_fn     
+            with open(episode_path, "rb") as ep_file:
+                buffer += pickle.load(ep_file)        
+        print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
 
     # Load demonstrations
     if cfg.get("demos", 0) > 0:
@@ -164,10 +185,20 @@ def train(cfg: dict):
         ), f"Episode length {len(episode)} != {cfg.episode_length}"
         
         if cfg.real_robot:
+            print('Checking success')
             _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
+            info['success'] = int(grasp_success)
             if grasp_success:
+                print('Recomputing reward')
                 episode.reward = recompute_real_rwd(cfg, episode.state)
                 episode.cumulative_reward = torch.sum(episode.reward).item()
+
+            episode_fn = 'rollout'+f'{(episode_idx):010d}.pt'
+            episode_path = episode_dir+'/'+episode_fn
+            print('Saving')
+            with open(episode_path, 'wb') as epf:
+                pickle.dump(episode, epf)   
+            print('Done saving')         
         buffer += episode
 
         # Update model
@@ -204,7 +235,7 @@ def train(cfg: dict):
         L.log(train_metrics, category="train")
 
         # Evaluate agent periodically
-        if env_step % cfg.eval_freq == 0:
+        if env_step % cfg.eval_freq == 0 and (not cfg.real_robot or step >= cfg.seed_steps):
             eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video)
             common_metrics.update(
                 {"episode_reward": eval_rew, "episode_success": eval_succ}

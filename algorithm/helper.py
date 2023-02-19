@@ -387,6 +387,9 @@ def get_demos(cfg):
         episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
         episodes.append(episode)
 
+        if len(episodes) % 10 == 0:
+            print('Loaded demo {} of {}'.format(len(episodes),cfg.demos))
+
     assert(len(episodes)==cfg.demos)
     return episodes
 

@@ -1,5 +1,5 @@
 defaults:
-    - suite@_global_: adroit
+    - suite@_global_: franka
     - override hydra/launcher: submitit_local
 
 # environment

@@ -115,15 +115,18 @@ class FrankaWrapper(gym.Wrapper):
         return self._stacked_obs(), reward, False, info
 
     def render(self, mode="rgb_array", width=None, height=None, camera_id=None):
-        return np.flip(
-            self.env.env.sim.render(
-                mode="offscreen",
-                width=width,
-                height=height,
-                camera_name=self.camera_names[0],
-            ),
-            axis=0,
-        )
+        if self.cfg.real_robot:
+            return self._get_pixel_obs()[0,:3].transpose(1,2,0)
+        else:
+            return np.flip(
+                self.env.env.sim.render(
+                    mode="offscreen",
+                    width=width,
+                    height=height,
+                    camera_name=self.camera_names[0],
+                ),
+                axis=0,
+            )
 
     def observation_spec(self):
         return self.observation_space

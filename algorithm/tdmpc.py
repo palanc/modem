@@ -136,7 +136,7 @@ class TDMPC:
         )
 
         # Seed steps
-        if step < self.cfg.seed_steps and not eval_mode:
+        if step <= self.cfg.seed_steps and not eval_mode:
             return self.act(obs, state).squeeze(0)
 
         # Encode observation only once

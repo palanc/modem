@@ -36,6 +36,7 @@ python train.py \
     camera_views=[left_cam,right_cam] \
     real_robot=true \
     action_repeat=1 \
+    seed_steps=10000 \
     logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
     demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
     bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/real_bc/real_bc_seed'

@@ -39,14 +39,20 @@ def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False):
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
         if video:
-            video.init(env, enabled=(i == 0))
+            if cfg.real_robot:
+                video.init(env, enabled=(i < 5))
+            else:
+                video.init(env, enabled=(i == 0))
+        plan_step = step
+        planner = agent.plan
         while not done:
             if policy_rollout:
                 obs = torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0)
                 state = torch.tensor(env.state, dtype=torch.float32, device=agent.device).unsqueeze(0)
                 action = torch.squeeze(agent.model.pi(agent.model.h(obs, state), cfg.min_std).detach(),dim=0)
             else:
-                action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
+                #action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
+                action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0)
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
             ep_reward += reward
@@ -71,21 +77,18 @@ def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
     model_fp = None
     step = 0
 
-    if cfg.real_robot:
-        while step < cfg.seed_steps:
+    if checkpt_dir is not None:
+        while True:
+            if os.path.exists(checkpt_dir / f'{str(step)}.pt'):
+                model_fp = checkpt_dir / f'{str(step)}.pt'
+            else:
+                step -= cfg.save_freq
+                step = max(0, step)
+                break
             step += cfg.save_freq
-
-    while True:
-        if os.path.exists(checkpt_dir / f'{str(step)}.pt'):
-            model_fp = checkpt_dir / f'{str(step)}.pt'
-        else:
-            step -= cfg.save_freq
-            step = max(0, step)
-            break
-        step += cfg.save_freq
-    
+        
     if model_fp is None:
-        step = 0
+        assert(step==0)
 
     if model_fp is None and cfg.get('bc_model_fp', None) is not None:
         if os.path.exists(cfg.bc_model_fp):
@@ -137,6 +140,13 @@ def train(cfg: dict):
         print('Loading agent '+str(model_fp))
         agent.load(model_fp)        
 
+    bc_agent = TDMPC(cfg)
+    bc_model_fp = model_fp
+    if bc_model_fp is not None and start_step //cfg.action_repeat >= cfg.seed_steps:
+        bc_model_fp, _, _ = load_checkpt_fp(cfg, None, L._model_dir)
+    if bc_model_fp is not None:
+        bc_agent.load(bc_model_fp)
+
     # Load past episodes
     if cfg.real_robot:
         for i in range(start_step//cfg.episode_length):
@@ -144,6 +154,7 @@ def train(cfg: dict):
             episode_path = episode_dir+'/'+episode_fn     
             with open(episode_path, "rb") as ep_file:
                 buffer += pickle.load(ep_file)        
+            print('Loaded episode {} of {}'.format(i+1,start_step//cfg.episode_length))
         print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
 
     # Load demonstrations
@@ -156,6 +167,7 @@ def train(cfg: dict):
             if bc_start_step is None:
                 bc_start_step = 0
             agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step)
+            bc_agent.load(copy.deepcopy(agent.state_dict()))
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
     if cfg.bc_only:
@@ -169,17 +181,22 @@ def train(cfg: dict):
         exit()
 
     # Run training
-    episode_idx, start_time = 0, time.time()
+    start_time = time.time()
     start_step = start_step // cfg.action_repeat
+    episode_idx = start_step // cfg.episode_length
     for step in range(start_step, start_step+cfg.train_steps + cfg.episode_length, cfg.episode_length):
 
         # Collect trajectory
         obs = env.reset()
         episode = Episode(cfg, obs, env.state)
+
+        planner = agent.plan
+        plan_step = step
         while not episode.done:
-            action = agent.plan(obs, env.state, step=step, t0=episode.first)
+            action = planner(obs, env.state, step=plan_step, t0=episode.first)
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
+
         assert (
             len(episode) == cfg.episode_length
         ), f"Episode length {len(episode)} != {cfg.episode_length}"
@@ -193,7 +210,7 @@ def train(cfg: dict):
                 episode.reward = recompute_real_rwd(cfg, episode.state)
                 episode.cumulative_reward = torch.sum(episode.reward).item()
 
-            episode_fn = 'rollout'+f'{(episode_idx):010d}.pt'
+            episode_fn = 'rollout'+f'{(step//cfg.episode_length):010d}.pt'
             episode_path = episode_dir+'/'+episode_fn
             print('Saving')
             with open(episode_path, 'wb') as epf:
@@ -235,8 +252,11 @@ def train(cfg: dict):
         L.log(train_metrics, category="train")
 
         # Evaluate agent periodically
-        if env_step % cfg.eval_freq == 0 and (not cfg.real_robot or step >= cfg.seed_steps):
-            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video)
+        if env_step % cfg.eval_freq == 0:
+            if not cfg.real_robot or step >= cfg.seed_steps:
+                eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video)
+            else:
+                eval_rew, eval_succ = -cfg.episode_length, 0.0
             common_metrics.update(
                 {"episode_reward": eval_rew, "episode_success": eval_succ}
             )

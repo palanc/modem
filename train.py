@@ -148,14 +148,22 @@ def train(cfg: dict):
 
     # Load demonstrations
     if cfg.get("demos", 0) > 0:
-        for episode in get_demos(cfg):
-            demo_buffer += episode
+
+        valid_demo_buffer = None
+        if cfg.bc_only:
+            valid_demo_buffer = buffer
+
+        for i,episode in enumerate(get_demos(cfg)):
+            if valid_demo_buffer is not None and i % 10 == 0:
+                valid_demo_buffer += episode
+            else:
+                demo_buffer += episode
         print(colored(f"Loaded {cfg.demos} demonstrations", "yellow", attrs=["bold"]))
         print(colored("Phase 1: policy pretraining", "red", attrs=["bold"]))
         if model_fp is None or (bc_start_step is not None):
             if bc_start_step is None:
                 bc_start_step = 0
-            agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step)
+            agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step, valid_demo_buffer)
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
     if cfg.bc_only:

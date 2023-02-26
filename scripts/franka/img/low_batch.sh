@@ -13,24 +13,25 @@ python train.py \
     lr=3e-4 \
     batch_size=256 \
     seed_steps=100 \
-    eval_episodes=3
+    eval_episodes=3 \
+    camera_views=[left_cam,right_cam] \
+    action_repeat=1    
 test
-# img_demo_exp: Vary the number of demos
 
-# Vary the number of demos
-for i in 0 1 5 10 100 1000
+# Vary the discount factor
+for i in 3e-3 1e-4 3e-4
 do
     python train.py -m \
         task=franka-FrankaPickPlaceRandom_v2d  \
         suite=franka \
-        exp_name=img_demo_exp_demos$i \
+        exp_name=img_low_batch_lr_$i \
         discount=0.95 \
         train_steps=200000 \
         seed=1,2,3,4,5 \
-        demos=$i \
+        demos=1000 \
         img_size=224 \
-        lr=3e-4 \
-        batch_size=256 \
+        lr=$i \
+        batch_size=64 \
         camera_views=[left_cam,right_cam] \
         action_repeat=1 \
         hydra/launcher=slurm & 

@@ -111,18 +111,33 @@ class TDMPC:
         return self.model.pi(z, self.cfg.min_std)
 
     @torch.no_grad()
-    def estimate_value(self, z, actions, horizon):
+    def rollout_actions(self, obs, state, horizon):
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        z_obs = self.model.h(obs, state)
+        z = z_obs.squeeze(0)
+        actions = torch.zeros(horizon, self.cfg.action_dim, device=self.device)
+        for t in range(horizon):
+            actions[t] = self.model.pi(z, 0.0)
+            z, _ = self.model.next(z, actions[t])
+        return actions   
+
+    @torch.no_grad()
+    def estimate_value(self, z, actions, horizon, q_pol=None):
         """Estimate value of a trajectory starting at latent state z and executing given actions."""
         G, discount = 0, 1
         for t in range(horizon):
             z, reward = self.model.next(z, actions[t])
             G += discount * reward
             discount *= self.cfg.discount
-        G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
+        if q_pol is None:
+            G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
+        else:
+            G += discount * torch.min(*self.model.Q(z, q_pol(z, self.cfg.min_std)))
         return G
 
     @torch.no_grad()
-    def plan(self, obs, state, eval_mode=False, step=None, t0=True):
+    def plan(self, obs, state, mean=None, std=None, eval_mode=False, step=None, t0=True, q_pol=None):
         """
         Plan next action using TD-MPC inference.
         obs: raw input observation.
@@ -136,7 +151,7 @@ class TDMPC:
         )
 
         # Seed steps
-        if step <= self.cfg.seed_steps and not eval_mode:
+        if step <= self.cfg.seed_steps:# and not eval_mode:
             return self.act(obs, state).squeeze(0)
 
         # Encode observation only once
@@ -158,10 +173,12 @@ class TDMPC:
 
         # Initialize state and parameters
         z = z_obs.repeat(self.cfg.num_samples + num_pi_trajs, 1)
-        mean = torch.zeros(horizon, self.cfg.action_dim, device=self.device)
-        std = 2 * torch.ones(horizon, self.cfg.action_dim, device=self.device)
-        if not t0 and hasattr(self, "_prev_mean"):
-            mean[:-1] = self._prev_mean[1:]
+        if mean is None:
+            mean = torch.zeros(horizon, self.cfg.action_dim, device=self.device)
+            if not t0 and hasattr(self, "_prev_mean"):
+                mean[:-1] = self._prev_mean[1:]
+        if std is None:
+            std = 2 * torch.ones(horizon, self.cfg.action_dim, device=self.device)
 
         # Iterate
         for _ in range(self.cfg.iterations):
@@ -181,7 +198,7 @@ class TDMPC:
                 actions = torch.cat([actions, pi_actions], dim=1)
 
             # Compute elite actions
-            value = self.estimate_value(z, actions, horizon).nan_to_num_(0)
+            value = self.estimate_value(z, actions, horizon, q_pol=q_pol).nan_to_num_(0)
             elite_idxs = torch.topk(
                 value.squeeze(1), self.cfg.num_elites, dim=0
             ).indices
@@ -201,7 +218,8 @@ class TDMPC:
                 )
                 / (score.sum(0) + 1e-9)
             )
-            _std = _std.clamp_(self.std, 2)
+            #_std = _std.clamp_(self.std, 2)
+            _std = _std.clamp_(0.0, 2)
             mean, std = self.cfg.momentum * mean + (1 - self.cfg.momentum) * _mean, _std
 
         # Outputs

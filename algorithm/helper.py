@@ -18,7 +18,7 @@ from env import make_env
 import multiprocessing as mp
 import concurrent.futures
 
-from tasks.franka import recompute_real_rwd
+from tasks.franka import recompute_real_rwd, FrankaTask
 
 __REDUCE__ = lambda b: "mean" if b else "none"
 
@@ -356,12 +356,36 @@ def get_demos(cfg):
         actions = np.array(data["actions"], dtype=np.float32).clip(-1, 1)
 
         if cfg.task.startswith('franka-'):
-            assert actions.shape[1] == 8
-            aug_actions = np.zeros((actions.shape[0],actions.shape[1]-1),dtype=np.float32)
-            aug_actions[:,:3] = actions[:,:3]
-            aug_actions[:,3] = np.cos(3.14*actions[:,5])
-            aug_actions[:,4] = np.sin(3.14*actions[:,5])
-            aug_actions[:,5:] = actions[:,6:]
+            
+            if 'PickPlace' in cfg.task:
+                franka_task = FrankaTask.PickPlace
+                assert actions.shape[1] == 8
+            elif 'BinPush' in cfg.task:
+                franka_task = FrankaTask.BinPush
+                assert actions.shape[1] == 7
+            elif 'HangPush' in cfg.task:
+                franka_task = FrankaTask.HangPush
+                assert actions.shape[1] == 7
+            elif 'PlanarPush' in cfg.task:
+                franka_task = FrankaTask.PlanarPush
+                assert actions.shape[1] == 7
+            else:
+                raise NotImplementedError()
+
+            if franka_task == FrankaTask.PickPlace:
+                aug_actions = np.zeros((actions.shape[0],actions.shape[1]-1),dtype=np.float32)
+                aug_actions[:,:3] = actions[:,:3]
+                aug_actions[:,3] = np.cos(3.14*actions[:,5])
+                aug_actions[:,4] = np.sin(3.14*actions[:,5])
+                aug_actions[:,5:] = actions[:,6:]
+            elif franka_task == FrankaTask.PlanarPush:
+                aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
+                aug_actions[:,:3] = actions[:,:3]
+                aug_actions[:,3] = np.cos(0.3*actions[:,5])
+                aug_actions[:,4] = np.sin(0.3*actions[:,5])
+            else:
+                aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
+                aug_actions[:,:3] = actions[:,:3]
             actions = aug_actions
 
         if cfg.task.startswith("mw-") or cfg.task.startswith("adroit-"):

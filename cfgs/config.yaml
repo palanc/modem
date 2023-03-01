@@ -60,7 +60,7 @@ seed: 1
 exp_name: default
 eval_freq: 2000
 eval_episodes: 30
-save_freq: 20000
+save_freq: 2000
 save_video: true
 save_model: true
 
@@ -76,6 +76,10 @@ state_dim: ???
 bc_only: false
 real_robot: false
 bc_model_fp: ???
+
+plan_policy: false
+bc_rollout: false
+bc_q_pol: false
 
 hydra:
     job:

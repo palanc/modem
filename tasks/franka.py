@@ -9,6 +9,13 @@ import gym
 from gym.wrappers import TimeLimit
 import mj_envs.envs.arms
 import matplotlib.pyplot as plt
+from enum import Enum 
+
+class FrankaTask(Enum):
+    PickPlace=1
+    BinPush=2
+    HangPush=3
+    PlanarPush=4
 
 class FrankaWrapper(gym.Wrapper):
     def __init__(self, env, cfg):
@@ -25,8 +32,27 @@ class FrankaWrapper(gym.Wrapper):
             shape=(len(self.camera_names), self._num_frames * (3 if cfg.img_size <= 0 else 4), img_size, img_size),
             dtype=np.uint8,
         )
-        act_low = -np.ones(7)
-        act_high = np.ones(7)
+        
+        if 'PickPlace' in cfg.task:
+            self.franka_task = FrankaTask.PickPlace
+        elif 'BinPush' in cfg.task:
+            self.franka_task = FrankaTask.BinPush
+        elif 'HangPush' in cfg.task:
+            self.franka_task = FrankaTask.HangPush
+        elif 'PlanarPush' in cfg.task:
+            self.franka_task = FrankaTask.PlanarPush
+        else:
+            raise NotImplementedError()
+
+        if self.franka_task == FrankaTask.PickPlace:
+            act_low = -np.ones(7)
+            act_high = np.ones(7)
+        elif self.franka_task == FrankaTask.PlanarPush:
+            act_low = -np.ones(5)
+            act_high = np.ones(5)
+        else:
+            act_low = -np.ones(3)
+            act_high = np.ones(3)
         self.action_space = gym.spaces.Box(act_low, act_high, dtype=np.float32)
         
 
@@ -35,7 +61,7 @@ class FrankaWrapper(gym.Wrapper):
         return self._state_obs.astype(np.float32)
 
     def _get_state_obs(self, obs):
-      if self.cfg.task.startswith('franka-FrankaPickPlaceRandom'):
+
         qp = self.env.sim.data.qpos.ravel()
         qv = self.env.sim.data.qvel.ravel()
         grasp_pos = self.env.sim.data.site_xpos[self.env.grasp_sid].ravel()
@@ -52,7 +78,7 @@ class FrankaWrapper(gym.Wrapper):
             assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
 
         return manual
-      raise NotImplementedError()
+
 
     def _get_pixel_obs(self):
         if self.cfg.img_size <= 0:
@@ -94,13 +120,23 @@ class FrankaWrapper(gym.Wrapper):
     def step(self, action):
         reward = 0
 
-        aug_action = np.zeros(action.shape[0]+1, dtype=action.dtype)
-        aug_action[:3] = action[:3]
-        aug_action[3] = 1.0
-        aug_action[4] = -1.0
-        aug_action[5] = np.arctan2(action[4], action[3])/3.14
-        aug_action[6] = 2*(int(action[5]>0.0)-0.5)
-        aug_action[7] = action[6]
+        if self.franka_task == FrankaTask.PickPlace:
+            aug_action = np.zeros(action.shape[0]+1, dtype=action.dtype)
+            aug_action[:3] = action[:3]
+            aug_action[3] = 1.0
+            aug_action[4] = -1.0
+            aug_action[5] = np.arctan2(action[4], action[3])/3.14
+            aug_action[6] = 2*(int(action[5]>0.0)-0.5)
+            aug_action[7] = action[6]
+        else:
+            aug_action = np.zeros(7, dtype=action.dtype)
+            aug_action[:3] = action[:3]
+            # Note that unset dimensions of aug_action will be clipped to a constant value
+            # as specified in env/arms/franka/__init__.py
+            if self.franka_task == FrankaTask.PlanarPush:
+                aug_action[5] = np.arctan2(action[4], action[3])
+                aug_action[5] = 2*(((aug_action[5] - self.env.pos_limit_low[5]) / (self.env.pos_limit_high[5] - self.env.pos_limit_low[5])) - 0.5)
+
         
         for _ in range(self.cfg.action_repeat):
             obs, r, _, info = self.env.step(aug_action)
@@ -141,6 +177,7 @@ class FrankaWrapper(gym.Wrapper):
         return self.env
     
 def recompute_real_rwd(cfg, states):
+    assert(cfg.task.startswith('franka-FrankaPickPlaceRandom'))
     rewards = torch.zeros(
         (cfg.episode_length,), dtype=torch.float32, device=states.device
     )-1.0

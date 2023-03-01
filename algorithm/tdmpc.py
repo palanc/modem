@@ -214,7 +214,12 @@ class TDMPC:
             a += std * torch.randn(self.cfg.action_dim, device=std.device)
         return a.clamp_(-1, 1)
 
-    def init_bc(self, buffer, log, start_step=0):
+    def eval_batch(self, buffer):
+        obs, _, action, _, state, _, _, _ = buffer.sample()
+        a = self.model.pi(self.model.h(self.aug(obs), state))
+        return h.mse(a, action[0], reduce=True)
+    
+    def init_bc(self, train_buffer, log, start_step=0, valid_buffer=None):
         """Initialize policy using a behavior cloning objective (iterations: 2x #samples)."""
         self.model.train()
         end_step = 2 * self.cfg.demos * self.cfg.episode_length
@@ -223,10 +228,8 @@ class TDMPC:
         for i in tqdm(
             range(start_step, end_step), "Pretraining policy"
         ):
-            obs, _, action, _, state, _, _, _ = buffer.sample()
             self.bc_optim.zero_grad(set_to_none=True)
-            a = self.model.pi(self.model.h(self.aug(obs), state))
-            mse = h.mse(a, action[0], reduce=True)
+            mse = self.eval_batch(train_buffer)
             mse.backward()
             torch.nn.utils.clip_grad_norm_(
                 self.model.parameters(),
@@ -240,9 +243,16 @@ class TDMPC:
                 log.save_model(self, 'bc_'+str(i))
 
             if self.cfg.bc_only and i % 50 == 0 and i > 0:
-                train_metrics = {
+                
+                valid_mse = 0.0
+                if valid_buffer is not None:
+                    valid_mse = self.eval_batch(valid_buffer)
+                    valid_mse = valid_mse.item()
+                
+                    train_metrics = {
                     'env_step': i,
-                    'bc_mse': mse_total / 50}
+                    'bc_mse': mse_total / 50,
+                    'valid_mse': valid_mse}
                 log.log(train_metrics, category='train')
                 mse_total = 0.0		
 

@@ -6,7 +6,7 @@ python train.py \
     suite=franka \
     exp_name=test \
     seed=1 \
-    demos=3 \
+    demos=30 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \
@@ -19,9 +19,9 @@ test
 python train.py -m \
     task=franka-FrankaPickPlaceRandomReal_v2d  \
     suite=franka \
-    exp_name=real_bc \
+    exp_name=real_bc_1000_demos \
     seed=1,2,3,4,5,6,7,8,9,10 \
-    demos=100 \
+    demos=1000 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \

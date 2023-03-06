@@ -227,10 +227,7 @@ def train(cfg: dict):
         planner = agent.plan
         plan_step = step
         horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
-        t = 0
         while not episode.done:
-            print('t {}'.format(t))
-            t+=1
             if cfg.plan_policy:
                 if cfg.bc_rollout:
                     mean = bc_agent.rollout_actions(obs, env.state, horizon)

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from termcolor import colored
 from omegaconf import OmegaConf
-
+import matplotlib.pyplot as plt
 
 CONSOLE_FORMAT = [
     ("episode", "E", "int"),
@@ -73,6 +73,128 @@ def cfg_to_group(cfg, return_list=False):
     """Return a wandb-safe group name for logging. Optionally returns group name as list."""
     lst = [cfg.task, re.sub("[^0-9a-zA-Z]+", "-", cfg.exp_name)]
     return lst if return_list else "-".join(lst)
+
+class TrajectoryPlotter:
+    def __init__(self, wandb, cfg):
+        self.cfg = cfg
+        self._wandb = wandb
+        if cfg.task.startswith('franka-'):
+            if cfg.img_size > 0:
+                self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
+                                        'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
+                                        'eef_x','eef_y','eef_z']
+                self.state_enabled = [1,1,1,1,1,1,1,1,0,
+                                        0,0,0,0,0,0,0,0,0,
+                                        1,1,1]
+            else:
+                self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
+                                     'qp9','qp10','qp11','qp12','qp13','qp14','qp15',
+                                     'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
+                                     'qv9','qv10','qv11','qv12','qv13','qv14',
+                                     'eef_x','eef_y','eef_z',
+                                     'obj_err_x','obj_err_y','obj_err_z',
+                                     'tar_err_x','tar_err_y','tar_err_z',]
+                self.state_enabled = [1,1,1,1,1,1,1,1,0,
+                                      0,0,0,0,0,0,0,
+                                      0,0,0,0,0,0,0,0,0,
+                                      0,0,0,0,0,0,
+                                      1,1,1,
+                                      0,0,0,
+                                      0,0,0]              
+            if 'PickPlace' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z','act_roll','act_pitch','act_yaw','act_grasp','act_term']
+                self.act_enabled = [1,1,1,0,0,1,1,0]
+                self.act_limits = {'low': np.array([-0.35, 0.25, 0.76, -np.pi, 0, -np.pi, 0.0, 0.0]),
+                                   'high': np.array([0.35, 0.75, 1.5, np.pi, 2*np.pi, 0, 0.04, 1.0])}
+            elif 'PlanarPush' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z','act_cos','act_sin']
+                self.act_enabled = [1,1,1,1,1]
+                self.act_limits = {'low': np.array([-0.4, 0.3, 0.8, -1, -1]),
+                                   'high': np.array([0.4, 0.8, 0.9, 1, 1])}                
+            elif 'BinPush' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z']
+                self.act_enabled = [1,1,1]
+                self.act_limits = {'low': np.array([-0.275, 0.315, 0.825]),
+                                   'high': np.array([0.22, 0.695, 1.06])}
+            elif 'HangPush' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z']
+                self.act_enabled = [1,1,1]
+                self.act_limits = {'low': np.array([-0.1, 0.3, 1.25]),
+                                   'high': np.array([0.1, 0.8, 1.5])}                
+            else:
+                raise NotImplementedError()
+        else:
+            raise NotImplementedError()
+        assert(len(self.state_labels)==len(self.state_enabled))  
+        assert(len(self.act_labels)==len(self.act_enabled))
+        assert(len(self.act_labels)==self.act_limits['low'].shape[0])
+        assert(len(self.act_labels)==self.act_limits['high'].shape[0])
+        self.cols = 3
+        self.rows = (np.sum(np.array(self.state_enabled))+np.sum(np.array(self.act_enabled)))
+        self.rows =  (self.rows//self.cols) if (self.rows%self.cols==0) else ((self.rows//self.cols)+1)
+
+    def save_traj(self, policy_states, policy_actions, mppi_states, mppi_actions, step):
+        assert(len(policy_states) >= 1)
+        assert(len(policy_actions) >= 1)
+        assert(len(mppi_states)>=1)
+        assert(len(mppi_actions)>=1)
+        assert(len(policy_states) == len(mppi_states))
+        assert(len(policy_actions) == len(mppi_actions))
+
+        plt.clf()
+        fig, axs = plt.subplots(self.rows, self.cols, figsize=(15, 15))
+        plt.tight_layout(h_pad=3)
+        plot_row = 0
+        plot_col = 0
+
+        # Generate colors
+        colors = []
+        for i in range(len(mppi_states)):
+            colors.append((0.8*np.random.rand(),
+                           0.8*np.random.rand(),
+                           0.8*np.random.rand()))
+        t = np.arange(mppi_states[0].shape[0])
+        for i in range(len(self.state_labels)):
+            if not self.state_enabled[i]:
+                continue
+            axs[plot_row, plot_col].set_title(self.state_labels[i]+' (idx {})'.format(i))
+            axs[plot_row, plot_col].set_xlabel('Step')
+            for j in range(len(mppi_states)):
+                #axs[plot_row, plot_col].plot(t, mppi_states[j][:,i])
+                axs[plot_row, plot_col].plot(t, policy_states[j][:,i], color=colors[j])
+                axs[plot_row, plot_col].fill_between(t, 
+                                                     policy_states[j][:,i]+ np.abs(policy_states[j][:,i]-mppi_states[j][:,i]),
+                                                     policy_states[j][:,i]- np.abs(policy_states[j][:,i]-mppi_states[j][:,i]),
+                                                     color=(*colors[j],0.3))
+            plot_col += 1
+            if plot_col >= self.cols:
+                plot_row += 1
+                plot_col = 0
+
+        t = np.arange(mppi_actions[0].shape[0])
+        # unnormalize actions
+        #for i in range(len(mppi_actions)):
+        #    mppi_actions[i] = (0.5*mppi_actions[i]+0.5)*(self.act_limits['high']-self.act_limits['low'])+self.act_limits['low']
+        
+        for i in range(len(self.act_labels)):
+            if not self.act_enabled[i]:
+                continue
+            axs[plot_row, plot_col].set_title(self.act_labels[i]+' (idx {})'.format(i))
+            axs[plot_row, plot_col].set_xlabel('Step')
+            axs[plot_row, plot_col].set_ylim(bottom=self.act_limits['low'][i],top=self.act_limits['high'][i])
+            for j in range(len(mppi_actions)):
+                #axs[plot_row, plot_col].plot(t, mppi_actions[j][:,i])
+                axs[plot_row, plot_col].plot(t, policy_actions[j][:,i], color=colors[j])
+                axs[plot_row, plot_col].fill_between(t, 
+                                                     policy_actions[j][:,i]+ np.abs(policy_actions[j][:,i]-mppi_actions[j][:,i]),
+                                                     policy_actions[j][:,i]- np.abs(policy_actions[j][:,i]-mppi_actions[j][:,i]),
+                                                     color=(*colors[j],0.3))                
+            plot_col += 1
+            if plot_col >= self.cols:
+                plot_row += 1
+                plot_col = 0
+
+        self._wandb.log({'Trajectories': self._wandb.Image(plt)}, step=step, commit=False)
 
 
 class VideoRecorder:
@@ -142,10 +264,15 @@ class Logger(object):
             if self._wandb and cfg.save_video
             else None
         )
+        self._traj_plot = TrajectoryPlotter(self._wandb, cfg) if self._wandb else None
 
     @property
     def video(self):
         return self._video
+
+    @property
+    def traj_plot(self):
+        return self._traj_plot
 
     @property
     def model_dir(self):

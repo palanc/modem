@@ -24,7 +24,7 @@ test
 python train.py -m \
     task=franka-FrankaPickPlaceRandom_v2d  \
     suite=franka \
-    exp_name=policy_plan_exp \
+    exp_name=policy_plan_exp2 \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \

@@ -8,6 +8,7 @@ import torch.nn as nn
 from copy import deepcopy
 import algorithm.helper as h
 from tqdm import tqdm
+from algorithm.helper import gather_paths_parallel
 
 
 class TOLD(nn.Module):
@@ -105,10 +106,10 @@ class TDMPC:
         self.model_target.load_state_dict(d["model_target"])
 
     @torch.no_grad()
-    def act(self, obs, state):
+    def act(self, obs, state, noise=None):
         """Sample action from current policy."""
         z = self.model.h(obs, state)
-        return self.model.pi(z, self.cfg.min_std)
+        return self.model.pi(z, self.cfg.min_std if noise is None else noise)
 
     @torch.no_grad()
     def rollout_actions(self, obs, state, horizon):
@@ -137,7 +138,7 @@ class TDMPC:
         return G
 
     @torch.no_grad()
-    def plan(self, obs, state, mean=None, std=None, eval_mode=False, step=None, t0=True, q_pol=None):
+    def plan(self, obs, state, mean=None, std=None, eval_mode=False, step=None, t0=True, q_pol=None, gt_rollout_start_state=None):
         """
         Plan next action using TD-MPC inference.
         obs: raw input observation.
@@ -197,8 +198,19 @@ class TDMPC:
             if num_pi_trajs > 0:
                 actions = torch.cat([actions, pi_actions], dim=1)
 
-            # Compute elite actions
-            value = self.estimate_value(z, actions, horizon, q_pol=q_pol).nan_to_num_(0)
+            if gt_rollout_start_state is not None:
+                paths = gather_paths_parallel(self.cfg, 
+                                              gt_rollout_start_state,
+                                              actions.cpu().numpy(),
+                                              self.cfg.seed, 
+                                              self.cfg.num_samples//self.cfg.num_cpu, 
+                                              self.cfg.num_cpu)
+                value = torch.empty(len(paths),1, device=self.device)
+                for i, path in enumerate(paths):
+                    value[i,0] = path['rewards'][-1]
+            else:
+                # Compute elite actions
+                value = self.estimate_value(z, actions, horizon, q_pol=q_pol).nan_to_num_(0)
             elite_idxs = torch.topk(
                 value.squeeze(1), self.cfg.num_elites, dim=0
             ).indices

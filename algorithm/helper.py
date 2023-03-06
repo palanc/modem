@@ -17,6 +17,7 @@ from typing import Union
 from env import make_env
 import multiprocessing as mp
 import concurrent.futures
+from copy import deepcopy
 
 from tasks.franka import recompute_real_rwd, FrankaTask
 
@@ -375,8 +376,8 @@ def get_demos(cfg):
             if franka_task == FrankaTask.PickPlace:
                 aug_actions = np.zeros((actions.shape[0],actions.shape[1]-1),dtype=np.float32)
                 aug_actions[:,:3] = actions[:,:3]
-                aug_actions[:,3] = np.cos(3.14*actions[:,5])
-                aug_actions[:,4] = np.sin(3.14*actions[:,5])
+                aug_actions[:,3] = np.cos(np.pi*actions[:,5])
+                aug_actions[:,4] = np.sin(np.pi*actions[:,5])
                 aug_actions[:,5:] = actions[:,6:]
             elif franka_task == FrankaTask.PlanarPush:
                 aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
@@ -444,7 +445,7 @@ def gather_paths_parallel(
         input_dict = dict(
             cfg=cfg,
             start_state=start_state,
-            act_list=act_list,
+            act_list=act_list[:,i*act_list.shape[1]//num_cpu:(i+1)*act_list.shape[1]//num_cpu],
             base_seed=cpu_seed
         )
         input_dict_list.append(input_dict)
@@ -503,7 +504,7 @@ def _try_multiprocess_mp(
 def generate_paths(
     cfg,
     start_state: dict,
-    act_list: list,
+    act_list: np.ndarray,
     base_seed: int
 ) -> list:
     """Generates perturbed action sequences and then performs rollouts.
@@ -543,10 +544,57 @@ def set_seed(seed=None):
         np.random.seed(seed)
         os.environ["PYTHONHASHSEED"] = str(seed)
 
+def do_policy_rollout(
+    cfg,
+    start_states,
+    agent
+):
+    e = make_env(cfg)
+    
+
+    H = cfg.episode_length
+    N = len(start_states)  # number of rollout trajectories (per process)
+    ep_states = []
+    ep_actions = []
+    for i in range(N):
+        e.reset()
+      
+        if cfg.task.startswith('adroit-') or cfg.task.startswith('franka-'):
+            #e.unwrapped.set_env_state(start_states[i])
+            e.set_env_state(start_states[i])
+        else:
+            e.unwrapped.physics.set_state(start_states[i])
+        obs = e.observation
+        state = e.state
+
+        observations = [obs]
+        actions = []
+        rewards = []
+        env_infos = []
+        states = [state]
+
+        for k in range(H):
+            action = agent.act(torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0), 
+                               torch.tensor(e.state, dtype=torch.float32, device=agent.device).unsqueeze(0),
+                               0.0).squeeze(0).cpu().numpy()
+            obs, r, d, ifo = e.step(action)
+            state = e.state
+
+            actions.append(e.base_env().last_eef_cmd)
+            observations.append(obs)
+            rewards.append(r)
+            env_infos.append(ifo)
+            states.append(state)
+        
+        ep_actions.append(np.stack(actions, axis=0))
+        ep_states.append(np.stack(states, axis=0))
+
+    return ep_states, ep_actions    
+
 def do_env_rollout(
     cfg,
     start_state: dict,
-    act_list: list
+    act_list: np.ndarray
 ) -> list:
     """Rollout action sequence in env from provided initial states.
 
@@ -569,15 +617,19 @@ def do_env_rollout(
 
     # Not all low-level envs are picklable. For generalizable behavior,
     # we have the option to instantiate the environment within the rollout function.
-    e = make_env(cfg)
-    e.reset()
+    cfg_copy = deepcopy(cfg)
+    cfg_copy.dense_reward = True
+    e = make_env(cfg_copy)
+
     e.unwrapped.real_step = False  # indicates simulation for purpose of trajectory optimization
     paths = []
-    H = act_list[0].shape[0]  # horizon
-    N = len(act_list)  # number of rollout trajectories (per process)
+    H = act_list.shape[0]  # horizon
+    N = act_list.shape[1]  # number of rollout trajectories (per process)
     for i in range(N):
+        e.reset()
         if cfg.task.startswith('adroit-') or cfg.task.startswith('franka-'):
-            e.unwrapped.set_env_state(start_state)
+            #e.unwrapped.set_env_state(start_state)
+            e.set_env_state(start_state)
         else:
             e.unwrapped.physics.set_state(start_state)
         obs = []
@@ -587,9 +639,9 @@ def do_env_rollout(
         states = []
 
         for k in range(H):
-            s, r, d, ifo = e.step(act_list[i][k])
+            s, r, d, ifo = e.step(act_list[k,i])
 
-            act.append(act_list[i][k])
+            act.append(act_list[k,i])
             obs.append(s)
             rewards.append(r)
             env_infos.append(ifo)            

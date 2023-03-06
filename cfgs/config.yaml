@@ -80,12 +80,15 @@ bc_model_fp: ???
 plan_policy: false
 bc_rollout: false
 bc_q_pol: false
+dense_reward: false
+gt_rollout: false
+num_cpu: 8
 
 hydra:
     job:
         name: ${exp_name}
     launcher:
-        cpus_per_task: 8
+        cpus_per_task: ${num_cpu}
         gpus_per_node: 1
         tasks_per_node: 1
         timeout_min: 4320

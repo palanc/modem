@@ -19,7 +19,7 @@ from pathlib import Path
 from cfg_parse import parse_cfg
 from env import make_env, set_seed
 from algorithm.tdmpc import TDMPC
-from algorithm.helper import Episode, get_demos, ReplayBuffer, linear_schedule
+from algorithm.helper import Episode, get_demos, ReplayBuffer, linear_schedule, do_policy_rollout
 from termcolor import colored
 from copy import deepcopy
 import logger
@@ -31,18 +31,25 @@ from tasks.franka import recompute_real_rwd
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False,rollout_agent=None,q_pol_agent=None):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False,rollout_agent=None,q_pol_agent=None):
     """Evaluate a trained agent and optionally save a video."""
     if rollout_agent is None:
         rollout_agent = agent
     if q_pol_agent is None:
         q_pol_agent = agent
 
+    episode_states = []
+    episode_actions = []
     episode_rewards = []
     episode_successes = []
+    episode_start_states = []
+
     for i in range(cfg.eval_episodes):
+        print('Episode {}'.format(i))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
+        episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
+        actions = []
         if video:
             if cfg.real_robot:
                 video.init(env, enabled=(i < 5))
@@ -52,25 +59,25 @@ def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False,rollou
         planner = agent.plan
         while not done:
             if policy_rollout:
-                obs = torch.tensor(obs, dtype=torch.float32, device=agent.device).unsqueeze(0)
-                state = torch.tensor(env.state, dtype=torch.float32, device=agent.device).unsqueeze(0)
-                action = torch.squeeze(agent.model.pi(agent.model.h(obs, state), cfg.min_std).detach(),dim=0)
+                plan_step = 0
+            
+            if cfg.plan_policy:
+                horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
+                mean = rollout_agent.rollout_actions(obs, env.state, horizon)
+                std = cfg.min_std* torch.ones(horizon, cfg.action_dim, device=agent.device)   
+                action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())   
             else:
-                #action = agent.plan(obs, env.state, eval_mode=True, step=step, t0=t == 0)
-                if cfg.plan_policy:
-                    horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
-                    mean = rollout_agent.rollout_actions(obs, env.state, horizon)
-                    std = cfg.min_std* torch.ones(horizon, cfg.action_dim, device=agent.device)   
-                    action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi)   
-                else:
-                    action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0)
+                action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
+            
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
+            actions.append(env.base_env().last_eef_cmd)
             ep_reward += reward
             if video:
                 video.record(env)
             t += 1
         ep_success = info.get('success', 0)
+
         if cfg.real_robot:
             _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
             if grasp_success:
@@ -78,10 +85,18 @@ def evaluate(env, agent, cfg, step, env_step, video, policy_rollout=False,rollou
                 ep_reward = torch.sum(recompute_real_rwd(cfg, states)).item()
             ep_success = 1 if grasp_success else 0
 
+        episode_states.append(np.stack([state.cpu().numpy() for state in states],axis=0))
+        episode_actions.append(np.stack(actions, axis=0))
         episode_rewards.append(ep_reward)
         episode_successes.append(ep_success)
         if video:
             video.save(env_step)
+
+    if traj_plot:
+        rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, rollout_agent)
+        traj_plot.save_traj(rollout_states, rollout_actions, 
+                            episode_states, episode_actions, 
+                            env_step)
     return np.nanmean(episode_rewards), np.nanmean(episode_successes)
 
 def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
@@ -193,7 +208,7 @@ def train(cfg: dict):
         L.save_model(agent, 0)
         print(colored(f'Model has been checkpointed', 'yellow', attrs=['bold']))
                         
-        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, policy_rollout=True)
+        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, L.traj_plot, policy_rollout=True)
         common_metrics = {"env_step": 0, "episode_reward": eval_rew, "episode_success": eval_succ}
         L.log(common_metrics, category="eval")
         print('Eval reward: {}, Eval success: {}'.format(eval_rew, eval_succ))
@@ -212,7 +227,10 @@ def train(cfg: dict):
         planner = agent.plan
         plan_step = step
         horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
+        t = 0
         while not episode.done:
+            print('t {}'.format(t))
+            t+=1
             if cfg.plan_policy:
                 if cfg.bc_rollout:
                     mean = bc_agent.rollout_actions(obs, env.state, horizon)
@@ -223,9 +241,9 @@ def train(cfg: dict):
                 else:
                     q_pol = agent.model.pi
                 std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
-                action = planner(obs, env.state, mean=mean, std=std, step=plan_step, t0=episode.first,q_pol=q_pol)         
+                action = planner(obs, env.state, mean=mean, std=std, step=plan_step, t0=episode.first,q_pol=q_pol, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())         
             else:
-                action = planner(obs, env.state, step=plan_step, t0=episode.first)
+                action = planner(obs, env.state, step=plan_step, t0=episode.first, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
 
@@ -286,11 +304,13 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             if not cfg.real_robot or step >= cfg.seed_steps or cfg.plan_policy:
-                bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, rollout_agent=bc_agent,q_pol_agent=bc_agent)
+                bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
+                print('BC Reward {}, BC Succ {}'.format(bc_eval_rew, bc_eval_succ))
                 if not cfg.real_robot:
-                    eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video)
+                    eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
                 else:
                     eval_rew, eval_succ = -cfg.episode_length, 0.0
+                print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             else:
                 eval_rew, eval_succ = -cfg.episode_length, 0.0
                 bc_eval_rew, bc_eval_succ = -cfg.episode_length, 0.0

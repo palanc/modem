@@ -60,6 +60,10 @@ class FrankaWrapper(gym.Wrapper):
     def state(self):
         return self._state_obs.astype(np.float32)
 
+    @property
+    def observation(self):
+        return self._stacked_obs()
+
     def _get_state_obs(self, obs):
 
         qp = self.env.sim.data.qpos.ravel()
@@ -117,6 +121,16 @@ class FrankaWrapper(gym.Wrapper):
             self._frames.append(obs)
         return self._stacked_obs()
 
+    def set_env_state(self, env_state):
+        self.env.unwrapped.set_env_state(env_state)
+        env_obs = self.env.get_obs()
+
+        self._state_obs = self._get_state_obs(env_obs)
+        obs = self._get_pixel_obs()    
+        for _ in range(self._num_frames):
+            self._frames.append(obs)
+        return self._stacked_obs()            
+
     def step(self, action):
         reward = 0
 
@@ -125,7 +139,7 @@ class FrankaWrapper(gym.Wrapper):
             aug_action[:3] = action[:3]
             aug_action[3] = 1.0
             aug_action[4] = -1.0
-            aug_action[5] = np.arctan2(action[4], action[3])/3.14
+            aug_action[5] = np.arctan2(action[4], action[3])/np.pi
             aug_action[6] = 2*(int(action[5]>0.0)-0.5)
             aug_action[7] = action[6]
         else:
@@ -145,7 +159,8 @@ class FrankaWrapper(gym.Wrapper):
         obs = self._get_pixel_obs()
         self._frames.append(obs)
         info["success"] = info["solved"]
-        reward = float(info["success"]) - 1.0
+        if not self.cfg.dense_reward:
+            reward = float(info["success"]) - 1.0
         if self.cfg.real_robot:
             reward = -1.0
         return self._stacked_obs(), reward, False, info
@@ -190,7 +205,8 @@ def recompute_real_rwd(cfg, states):
 
 def make_franka_env(cfg):
     env_id = cfg.task.split("-", 1)[-1] + "-v0"
-    env = gym.make(env_id, **{'reward_mode': 'sparse', 'is_hardware': cfg.real_robot})
+    reward_mode = 'dense' if cfg.dense_reward else 'sparse'
+    env = gym.make(env_id, **{'reward_mode': reward_mode, 'is_hardware': cfg.real_robot})
     env = FrankaWrapper(env, cfg)
     env = TimeLimit(env, max_episode_steps=cfg.episode_length)
     env.reset()

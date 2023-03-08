@@ -253,7 +253,7 @@ class TDMPC:
         """Initialize policy using a behavior cloning objective (iterations: 2x #samples)."""
         self.model.train()
         end_step = 2 * self.cfg.demos * self.cfg.episode_length
-        bc_save_int = max(int(0.1*end_step), 10000)
+        bc_save_int = max(int(0.1*end_step), 5000)
         mse_total = 0.0
         for i in tqdm(
             range(start_step, end_step), "Pretraining policy"

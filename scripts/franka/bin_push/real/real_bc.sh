@@ -28,4 +28,5 @@ python train.py -m \
     episode_length=100 \
     camera_views=[top_cam] \
     bc_only=true \
+    h5_demos=true \
     hydra/launcher=slurm &

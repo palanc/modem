@@ -293,7 +293,7 @@ def get_demos_h5(cfg, env):
     fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
     episodes = []
     assert(cfg.img_size > 0)
-    assert(cfg.real_robot)
+    assert(cfg.real_robot or cfg.bc_only)
 
     for fp in fps:
         paths = h5py.File(fp,'r')

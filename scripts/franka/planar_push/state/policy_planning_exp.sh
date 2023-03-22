@@ -23,7 +23,7 @@ test
 python train.py -m \
     task=franka-FrankaPlanarPush  \
     suite=franka \
-    exp_name=planar_push_state \
+    exp_name=planar_push_state_smooth \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \

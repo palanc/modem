@@ -23,7 +23,7 @@ test
 python train.py -m \
     task=franka-FrankaHangPush_v2d  \
     suite=franka \
-    exp_name=hang_push_img \
+    exp_name=hang_push_img_smooth \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \

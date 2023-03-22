@@ -18,7 +18,7 @@ from env import make_env
 import multiprocessing as mp
 import concurrent.futures
 from copy import deepcopy
-
+import h5py
 from tasks.franka import recompute_real_rwd, FrankaTask
 
 __REDUCE__ = lambda b: "mean" if b else "none"
@@ -289,6 +289,84 @@ class Episode(object):
         self.done = done
         self._idx += 1
 
+def get_demos_h5(cfg, env):
+    fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
+    episodes = []
+    assert(cfg.img_size > 0)
+    assert(cfg.real_robot)
+
+    for fp in fps:
+        paths = h5py.File(fp,'r')
+        for trial in paths.keys():
+            if len(episodes) >= cfg.demos:
+                break
+            if not bool(paths[trial]['config']['solved'][0]):
+                continue
+            
+            # Get images
+            views = []
+            for cam in cfg.camera_views:
+                lc = env.unwrapped.robot.robot_config[cam]['left_crop']
+                tc = env.unwrapped.robot.robot_config[cam]['top_crop']                
+                base_key = cam.split('_')[-2]
+                rgb_key = 'rgb_'+base_key
+                d_key = 'd_'+base_key
+                assert(rgb_key in paths[trial]['data'] and d_key in paths[trial]['data'])
+                rgb_imgs = paths[trial]['data'][rgb_key][:].transpose(0,3,1,2)
+                rgb_imgs = rgb_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                depth_imgs = np.expand_dims(paths[trial]['data'][d_key][:],axis=1)
+                depth_imgs = depth_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
+            obs = np.stack(views, axis=1)
+
+            if cfg.task.startswith('franka-'):
+                qp = np.concatenate([paths[trial]['data']['qp_arm'][:cfg.episode_length+1],
+                                     np.expand_dims(paths[trial]['data']['qp_ee'][:cfg.episode_length+1],axis=1),
+                                     np.expand_dims(paths[trial]['data']['qp_ee'][:cfg.episode_length+1],axis=1)], axis=1)
+                qv = np.concatenate([paths[trial]['data']['qv_arm'][:cfg.episode_length+1],
+                                     np.expand_dims(paths[trial]['data']['qv_ee'][:cfg.episode_length+1],axis=1),
+                                     np.expand_dims(paths[trial]['data']['qv_ee'][:cfg.episode_length+1],axis=1)], axis=1)
+                grasp_pos = paths[trial]['data']['grasp_poses'][:cfg.episode_length+1,:3]
+                state = np.concatenate([qp,qv,grasp_pos], axis=1)
+            else:
+                raise NotImplementedError()
+            state = torch.tensor(state, dtype=torch.float32)
+                             
+            actions = paths[trial]['data']['ctrl_cart'][:cfg.episode_length].clip(-1,1)
+            if cfg.task.startswith('franka-'):
+                assert actions.shape[1] == 6  
+                if 'BinPush' in cfg.task:
+                    franka_task = FrankaTask.BinPush
+                elif 'PlanarPush' in cfg.task:
+                    franka_task = FrankaTask.PlanarPush
+                else:
+                    raise NotImplementedError()
+
+                if franka_task == FrankaTask.BinPush: 
+                    aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
+                    aug_actions[:,:3] = actions[:,:3]
+                elif franka_task == FrankaTask.PlanarPush:
+                    aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
+                    aug_actions[:,:3] = actions[:,:3]
+                    yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limit_high[5]-env.unwrapped.pos_limit_low[5])+env.unwrapped.pos_limit_low[5]
+                    aug_actions[:,3] = np.cos(yaw)
+                    aug_actions[:,4] = np.sin(yaw)
+                else:
+                    raise NotImplementedError()
+            else: raise NotImplementedError()
+            actions = aug_actions
+
+            if cfg.task.startswith('franka-'):
+                assert(obs.shape[1]==1)
+                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)
+            
+            episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
+            episodes.append(episode)
+
+            if len(episodes) % 10 == 0:
+                print('Loaded demo {} of {}'.format(len(episodes),cfg.demos))
+    assert(len(episodes)==cfg.demos)
+    return episodes
 
 def get_demos(cfg):
     fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pt"))
@@ -720,9 +798,10 @@ class ReplayBuffer(object):
         )
         self._eps = 1e-6
         self.idx = 0
+        self.full = False
 
     def __len__(self):
-        return self.idx
+        return self.idx if not self.full else self.capacity
 
     def __add__(self, episode: Episode):
         self.add(episode)
@@ -730,6 +809,12 @@ class ReplayBuffer(object):
 
     def add(self, episode: Episode):
         assert(len(episode.obs.shape)==5)
+
+        if self.idx + self.cfg.episode_length > self.capacity:
+            self._priorities[self.idx:] = 0.0
+            self.idx = 0
+            self.full = True
+
         obs = episode.obs[:-1, :, -(self.cfg.obs_shape[1]//self.cfg.frame_stack):]
         if episode.obs.shape[2] == (self.cfg.obs_shape[1]//self.cfg.frame_stack):
             last_obs = torch.split(episode.obs[-self.cfg.frame_stack:],1,dim=0)
@@ -763,7 +848,8 @@ class ReplayBuffer(object):
         )
         new_priorities[mask] = 0
         self._priorities[self.idx : self.idx + self.cfg.episode_length] = new_priorities
-        self.idx = (self.idx + self.cfg.episode_length) % self.capacity
+
+        self.idx += self.cfg.episode_length
 
     def update_priorities(self, idxs, priorities):
         self._priorities[idxs] = priorities.squeeze(1).to(self.device) + self._eps
@@ -784,7 +870,10 @@ class ReplayBuffer(object):
         return obs.float()
 
     def sample(self):
-        probs = self._priorities[: self.idx] ** self.cfg.per_alpha
+        if not self.full:
+            probs = self._priorities[: self.idx] ** self.cfg.per_alpha
+        else:
+            probs = self._priorities[:] ** self.cfg.per_alpha
         probs /= probs.sum()
         total = len(probs)
         idxs = torch.from_numpy(

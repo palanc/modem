@@ -83,6 +83,7 @@ bc_q_pol: false
 dense_reward: false
 gt_rollout: false
 num_cpu: 8
+h5_demos: false
 
 hydra:
     job:

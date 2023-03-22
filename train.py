@@ -19,13 +19,14 @@ from pathlib import Path
 from cfg_parse import parse_cfg
 from env import make_env, set_seed
 from algorithm.tdmpc import TDMPC
-from algorithm.helper import Episode, get_demos, ReplayBuffer, linear_schedule, do_policy_rollout
+from algorithm.helper import Episode, get_demos,get_demos_h5, ReplayBuffer, linear_schedule, do_policy_rollout
 from termcolor import colored
 from copy import deepcopy
 import logger
 import hydra
 
 from mj_envs.utils.collect_modem_rollouts_real import check_grasp_success
+from mj_envs.utils.policies.heuristic_policy import HeuristicPolicyReal
 from tasks.franka import recompute_real_rwd
 
 torch.backends.cudnn.benchmark = True
@@ -49,6 +50,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
+        obs_unstacked = [obs[0,-4:-1]]
         actions = []
         if video:
             if cfg.real_robot:
@@ -71,6 +73,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
             
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
+            obs_unstacked.append(obs[0,-4:-1])
             actions.append(env.base_env().last_eef_cmd)
             ep_reward += reward
             if video:
@@ -79,10 +82,23 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         ep_success = info.get('success', 0)
 
         if cfg.real_robot:
-            _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
+            states = torch.stack(states, dim=0)
+            obs_unstacked = np.stack(obs_unstacked, axis=0)
+            grasp_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
             if grasp_success:
-                states = torch.stack(states, dim=0)
-                ep_reward = torch.sum(recompute_real_rwd(cfg, states)).item()
+                ep_reward = torch.sum(new_rewards).item()
+
+            #_, latest_img, grasp_success, _, _ = check_grasp_success(env=env.base_env(), obs=None, force_img=True)
+            #if grasp_success:
+            #    states = torch.stack(states, dim=0)
+            #    ep_reward = torch.sum(recompute_real_rwd(cfg, states)).item()
+            #elif reset_pi is not None:
+            #    assert(latest_img is not None)
+            #    reset_pi.update_grasps(img=latest_img)
+            #    print('Executing reset policy (eval)')
+            #    reset_pi.do_rollout(horizon=cfg.episode_length)
+            #    check_grasp_success(env=env.base_env(), obs=None, just_drop=True)
+
             ep_success = 1 if grasp_success else 0
 
         episode_states.append(np.stack([state.cpu().numpy() for state in states],axis=0))
@@ -93,7 +109,10 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
             video.save(env_step)
 
     if traj_plot:
-        rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, rollout_agent)
+        if not cfg.real_robot:
+            rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, rollout_agent)
+        else:
+            rollout_states, rollout_actions = episode_states, episode_actions
         traj_plot.save_traj(rollout_states, rollout_actions, 
                             episode_states, episode_actions, 
                             env_step)
@@ -182,6 +201,10 @@ def train(cfg: dict):
                 buffer += pickle.load(ep_file)        
             print('Loaded episode {} of {}'.format(i+1,start_step//cfg.episode_length))
         print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
+        #consec_train_fails = 0
+        #RESET_PI_THRESH = 3
+        #reset_pi = HeuristicPolicyReal(env=env.base_env(), 
+        #                               seed=cfg.seed)
 
     # Load demonstrations
     if cfg.get("demos", 0) > 0:
@@ -190,7 +213,9 @@ def train(cfg: dict):
         if cfg.bc_only:
             valid_demo_buffer = buffer
 
-        for i,episode in enumerate(get_demos(cfg)):
+        demos = get_demos(cfg) if not cfg.h5_demos else get_demos_h5(cfg, env)
+
+        for i,episode in enumerate(demos):
             if valid_demo_buffer is not None and i % 10 == 0:
                 valid_demo_buffer += episode
             else:
@@ -250,12 +275,30 @@ def train(cfg: dict):
         
         if cfg.real_robot:
             print('Checking success')
-            _, _, grasp_success, _, _ = check_grasp_success(env.base_env(), None)
+
+            grasp_success, new_rewards = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
             info['success'] = int(grasp_success)
             if grasp_success:
-                print('Recomputing reward')
-                episode.reward = recompute_real_rwd(cfg, episode.state)
+                episode.reward = new_rewards
                 episode.cumulative_reward = torch.sum(episode.reward).item()
+
+
+            #_, latest_img, grasp_success, _, _ = check_grasp_success(env.base_env(), obs=None, force_img=(consec_train_fails>=RESET_PI_THRESH-1))
+            #info['success'] = int(grasp_success)
+            #if grasp_success:
+            #    print('Recomputing reward')
+            #    episode.reward = recompute_real_rwd(cfg, episode.state)
+            #    episode.cumulative_reward = torch.sum(episode.reward).item()
+            #    consec_train_fails = 0
+            #else:
+            #    consec_train_fails += 1
+            #    if consec_train_fails >= RESET_PI_THRESH:
+            #        assert(latest_img is not None)
+            #        reset_pi.update_grasps(img=latest_img)
+            #        print('Executing reset policy (train)')
+            #        reset_pi.do_rollout(horizon=cfg.episode_length)
+            #        check_grasp_success(env.base_env(), obs=None, just_drop=True)
+            #        consec_train_fails = 0
 
             episode_fn = 'rollout'+f'{(step//cfg.episode_length):010d}.pt'
             episode_path = episode_dir+'/'+episode_fn
@@ -298,6 +341,10 @@ def train(cfg: dict):
         train_metrics.update(common_metrics)
         L.log(train_metrics, category="train")
 
+        if cfg.save_model and env_step % cfg.save_freq == 0:# and env_step > 0:
+            L.save_model(agent, env_step)
+            print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
+
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             if not cfg.real_robot or step >= cfg.seed_steps or cfg.plan_policy:
@@ -316,9 +363,7 @@ def train(cfg: dict):
                  "bc_episode_reward": bc_eval_rew, "bc_episode_success":bc_eval_succ}
             )
             L.log(common_metrics, category="eval")
-            if cfg.save_model and env_step % cfg.save_freq == 0:# and env_step > 0:
-                L.save_model(agent, env_step)
-                print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
+
 
     L.finish()
     print("\nTraining completed successfully")

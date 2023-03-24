@@ -169,7 +169,7 @@ def train(cfg: dict):
     work_dir = Path(cfg.logging_dir) / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
 
-    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}" 
+    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}/{cfg.exp_name}" 
     if (not os.path.isdir(episode_dir)):
         os.makedirs(episode_dir)
 
@@ -348,12 +348,22 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             if not cfg.real_robot or step >= cfg.seed_steps or cfg.plan_policy:
-                bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
-                print('BC Reward {}, BC Succ {}'.format(bc_eval_rew, bc_eval_succ))
-                if not cfg.real_robot:
-                    eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
+
+                assert((cfg.bc_rollout and cfg.bc_q_pol) or (not cfg.bc_rollout and not cfg.bc_q_pol))
+                if cfg.bc_rollout:
+                    bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
+                    if not cfg.real_robot:
+                        eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
+                    else:
+                        eval_rew, eval_succ = -cfg.episode_length, 0.0
                 else:
-                    eval_rew, eval_succ = -cfg.episode_length, 0.0
+                    eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
+                    if not cfg.real_robot:
+                        bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
+                    else:
+                        bc_eval_rew, bc_eval_succ = -cfg.episode_length, 0.0
+                print('BC Reward {}, BC Succ {}'.format(bc_eval_rew, bc_eval_succ))
+
                 print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             else:
                 eval_rew, eval_succ = -cfg.episode_length, 0.0

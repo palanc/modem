@@ -11,6 +11,8 @@ python train.py \
     batch_size=256 \
     episode_length=100 \
     camera_views=[right_cam] \
+    left_crops=[50] \
+    top_crops=[0] \
     bc_only=true \
     h5_demos=true
 test
@@ -27,6 +29,8 @@ python train.py -m \
     batch_size=256 \
     episode_length=100 \
     camera_views=[right_cam] \
+    left_crops=[50] \
+    top_crops=[0] \
     bc_only=true \
     h5_demos=true \
     hydra/launcher=slurm &

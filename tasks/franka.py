@@ -10,8 +10,8 @@ from gym.wrappers import TimeLimit
 import mj_envs.envs.arms
 import matplotlib.pyplot as plt
 from enum import Enum 
-from mj_envs.utils.policies.heuristic_policy import HeuristicPolicyReal
-from mj_envs.utils.collect_modem_rollouts_real import check_grasp_success
+from robohive.envs.arms.bin_pick_v0 import BinPickPolicy
+from modem.utils.move_utils import check_grasp_success
 from mj_envs.utils.color_threshold import ColorThreshold
 import time
 
@@ -63,7 +63,7 @@ class FrankaWrapper(gym.Wrapper):
 
             self.consec_train_fails = 0
             self.RESET_PI_THRESH = 3
-            self.reset_pi = HeuristicPolicyReal(env=self.env, seed=self.cfg.seed)
+            self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed)
         elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
             self.col_thresh = ColorThreshold(cam_name=self.camera_names[0], 
                                              left_crop=self.env.success_mask['left'], 

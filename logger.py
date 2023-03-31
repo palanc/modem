@@ -82,16 +82,19 @@ class TrajectoryPlotter:
             if cfg.img_size > 0:
                 self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
                                         'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
-                                        'eef_x','eef_y','eef_z']
+                                        'eef_x','eef_y','eef_z',
+                                        'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz']
                 self.state_enabled = [1,1,1,1,1,1,1,1,0,
                                         0,0,0,0,0,0,0,0,0,
-                                        1,1,1]
+                                        1,1,1,
+                                        0,0,0,0]
             else:
                 self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
                                      'qp9','qp10','qp11','qp12','qp13','qp14','qp15',
                                      'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
                                      'qv9','qv10','qv11','qv12','qv13','qv14',
                                      'eef_x','eef_y','eef_z',
+                                     'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz',
                                      'obj_err_x','obj_err_y','obj_err_z',
                                      'tar_err_x','tar_err_y','tar_err_z',]
                 self.state_enabled = [1,1,1,1,1,1,1,1,0,
@@ -99,6 +102,7 @@ class TrajectoryPlotter:
                                       0,0,0,0,0,0,0,0,0,
                                       0,0,0,0,0,0,
                                       1,1,1,
+                                      0,0,0,0,
                                       0,0,0,
                                       0,0,0]              
             if 'PickPlace' in cfg.task:

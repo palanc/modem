@@ -12,7 +12,10 @@ python train.py \
     batch_size=256 \
     episode_length=100 \
     camera_views=[left_cam,right_cam] \
-    bc_only=true
+    left_crops=[115,155] \ 
+    top_crops=[0,0] \
+    bc_only=true \
+    h5_demos=true
 test
 
 # Train bc policies for real 
@@ -27,5 +30,8 @@ python train.py -m \
     batch_size=256 \
     episode_length=100 \
     camera_views=[left_cam,right_cam] \
+    left_crops=[115,155] \
+    top_crops=[0,0] \
     bc_only=true \
+    h5_demos=true \
     hydra/launcher=slurm &

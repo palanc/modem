@@ -84,6 +84,8 @@ dense_reward: false
 gt_rollout: false
 num_cpu: 8
 h5_demos: false
+left_crops: ???
+top_crops: ???
 
 hydra:
     job:

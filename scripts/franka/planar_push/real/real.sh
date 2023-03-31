@@ -14,6 +14,8 @@
 #    batch_size=64 \
 #    episode_length=100 \
 #    camera_views=[right_cam] \
+#    left_crops=[50] \
+#    top_crops=[0] \
 #    real_robot=true \
 #    action_repeat=1 \
 #    plan_policy=true \
@@ -22,7 +24,8 @@
 #    logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
 #    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
 #    seed_steps=300 \
-#    eval_episodes=3
+#    eval_episodes=3 \
+#    h5_demos=true
 
 #   #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/real_bc/half_bc_seed' \
 #test
@@ -43,6 +46,8 @@ python train.py \
     episode_length=100 \
     save_freq=1000 \
     camera_views=[right_cam] \
+    left_crops=[50] \
+    top_crops=[0] \
     real_robot=true \
     action_repeat=1 \
     plan_policy=true \

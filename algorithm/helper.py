@@ -19,7 +19,9 @@ import multiprocessing as mp
 import concurrent.futures
 from copy import deepcopy
 import h5py
+import pickle
 from tasks.franka import recompute_real_rwd, FrankaTask
+from robohive.utils.tensor_utils import stack_tensor_dict_list
 
 __REDUCE__ = lambda b: "mean" if b else "none"
 
@@ -350,15 +352,22 @@ def get_demos_h5(cfg, env):
                 franka_task = FrankaTask.BinPush
             elif 'PlanarPush' in cfg.task:
                 franka_task = FrankaTask.PlanarPush
-            elif 'PickPlace' in cfg.task:
-                franka_task = FrankaTask.PickPlace
+            elif 'BinPick' in cfg.task:
+                franka_task = FrankaTask.BinPick
             else:
                 raise NotImplementedError()
 
-            if franka_task == FrankaTask.BinPush: 
+            if franka_task == FrankaTask.BinPick:
+                aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
+                aug_actions[:,:3] = actions[:,:3]
+                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+                aug_actions[:,3] = np.cos(yaw)
+                aug_actions[:,4] = np.sin(yaw)
+                aug_actions[:,5] = actions[:,6]
+            elif franka_task == FrankaTask.BinPush: 
                 aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
                 aug_actions[:,:3] = actions[:,:3]
-            elif franka_task == FrankaTask.PlanarPush or franka_task == FrankaTask.PickPlace:
+            elif franka_task == FrankaTask.PlanarPush:
                 aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
                 aug_actions[:,:3] = actions[:,:3]
                 yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
@@ -382,133 +391,118 @@ def get_demos_h5(cfg, env):
     assert(len(episodes)==cfg.demos)
     return episodes
 
-def get_demos(cfg):
-    fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pt"))
+def get_demos(cfg, env):
+    fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
     episodes = []
+    assert(cfg.task.startswith('franka-'))
+
     for fp in fps:
-
         if len(episodes) >= cfg.demos:
-            break 
+            break        
+        print('opening {}'.format(fp))
+        with open(fp, 'rb') as f:
+            paths = pickle.load(f)
+        for p_idx, path in enumerate(paths):
+            data = path['Trial{}'.format(p_idx)]
 
-        data = torch.load(fp)
-        frames_dir = Path(os.path.dirname(fp)) / "frames"
-        assert frames_dir.exists(), "No frames directory found for {}".format(fp)
-        
-        frames = []
-        for fn in data["frames"]:
-            if isinstance(fn, list):
-                views = []
-                for view in cfg.camera_views:
-                    fn_idx = 0
-                    while fn_idx < len(fn):
-                        if view in str(fn[fn_idx]):
-                            assert('rgb' in str(fn[fn_idx]))
-                            assert(view in str(fn[fn_idx+1]) and 'depth' in str(fn[fn_idx+1]))
-                            rgb_image = np.array(Image.open(frames_dir/fn[fn_idx])).transpose(2,0,1)
-                            depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[fn_idx+1])),axis=0)
-                            img = np.concatenate([rgb_image,depth_image],axis=0)
-                            views.append(img)
-                            break
-                        fn_idx += 2
-                    assert(fn_idx < len(fn))
-                assert(len(views)==len(cfg.camera_views))
-                views = np.stack(views, axis=0)
-                frames.append(views)             
-            else:
-                img = np.array(Image.open(frames_dir / fn))
-                frames.append(np.expand_dims(img.transpose(2,0,1),axis=0))
-        
-        obs = np.stack(frames)
-
-        if cfg.task.startswith("mw-"):
-            state = torch.tensor(data["states"], dtype=torch.float32)
-            state = torch.cat((state[:, :4], state[:, 18 : 18 + 4]), dim=-1)
-        elif cfg.task.startswith("adroit-"):
-            state = torch.tensor(data["states"], dtype=torch.float32)
-            if cfg.task == "adroit-door":
-                state = np.concatenate([state[:, :27], state[:, 29:32]], axis=1)
-            elif cfg.task == "adroit-hammer":
-                state = state[:, :36]
-            elif cfg.task == "adroit-pen":
-                state = np.concatenate([state[:, :24], state[:, -9:-6]], axis=1)
-            else:
-                raise NotImplementedError()
-        elif cfg.task.startswith('franka-'):
-            qp = data['states']['qp']
-            qv = data['states']['qv']
-            grasp_pos = data['states']['grasp_pos']
-            obj_err = data['states']['object_err']
-            tar_err = data['states']['target_err']
+            # Get images
+            views = []            
             if cfg.img_size <= 0:
-                state = np.concatenate([qp,qv,grasp_pos,obj_err,tar_err],axis=1)
+                views.append(np.zeros((cfg.episode_length+1,3,10,10)))
             else:
-                state = np.concatenate([qp[:,:9],qv[:,:9],grasp_pos], axis=1)
-            state = torch.tensor(state, dtype=torch.float32)
-        else:
-            state = torch.tensor(data["states"], dtype=torch.float32)
-        actions = np.array(data["actions"], dtype=np.float32).clip(-1, 1)
+                for i, cam in enumerate(cfg.camera_views):
+                    rgb_key = 'rgb:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
+                    d_key = 'd:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
+                    assert('env_infos/visual_dict/'+rgb_key in data
+                           and 'env_infos/visual_dict/'+d_key in data)
+                    lc = cfg.left_crops[i]
+                    tc = cfg.top_crops[i]                
+                    rgb_imgs = data['env_infos/visual_dict/'+rgb_key][:].transpose(0,3,1,2)
+                    rgb_imgs = rgb_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                    depth_imgs = data['env_infos/visual_dict/'+d_key][:]
+                    depth_imgs = depth_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                    views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
+            obs = np.stack(views, axis=1)
 
-        if cfg.task.startswith('franka-'):
-            
-            if 'PickPlace' in cfg.task:
-                franka_task = FrankaTask.PickPlace
-                assert actions.shape[1] == 8
-            elif 'BinPush' in cfg.task:
+            if cfg.img_size > 0:
+                qp = data['env_infos/obs_dict/qp'][:cfg.episode_length+1]
+                qv = data['env_infos/obs_dict/qv'][:cfg.episode_length+1]
+                grasp_pos = data['env_infos/obs_dict/grasp_pos'][:cfg.episode_length+1]
+                grasp_rot = data['env_infos/obs_dict/grasp_rot'][:cfg.episode_length+1]
+                state = np.concatenate([qp[:,:9],
+                                        qv[:,:9],
+                                        grasp_pos,
+                                        grasp_rot], axis=1)
+            else:   
+                env_infos = stack_tensor_dict_list(data['env_infos'])
+                qp = env_infos['obs_dict']['qp'][:cfg.episode_length+1]
+                qv = env_infos['obs_dict']['qv'][:cfg.episode_length+1]
+                grasp_pos = env_infos['obs_dict']['grasp_pos'][:cfg.episode_length+1]
+                grasp_rot = env_infos['obs_dict']['grasp_rot'][:cfg.episode_length+1]
+                obj_err = env_infos['obs_dict']['object_err'][:cfg.episode_length+1]
+                tar_err = env_infos['obs_dict']['target_err'][:cfg.episode_length+1]
+                state = np.concatenate([qp,
+                                        qv,
+                                        grasp_pos,
+                                        grasp_rot,
+                                        obj_err,
+                                        tar_err], axis=1)
+
+            state = torch.tensor(state, dtype=torch.float32)
+
+
+            actions = np.array(data['actions'])[:cfg.episode_length].clip(-1,1)
+            assert actions.shape[1] == 7  
+            if 'BinPush' in cfg.task:
                 franka_task = FrankaTask.BinPush
-                assert actions.shape[1] == 7
             elif 'HangPush' in cfg.task:
                 franka_task = FrankaTask.HangPush
-                assert actions.shape[1] == 7
             elif 'PlanarPush' in cfg.task:
                 franka_task = FrankaTask.PlanarPush
-                assert actions.shape[1] == 7
+            elif 'BinPick' in cfg.task:
+                franka_task = FrankaTask.BinPick
             else:
                 raise NotImplementedError()
 
-            if franka_task == FrankaTask.PickPlace:
-                aug_actions = np.zeros((actions.shape[0],actions.shape[1]-1),dtype=np.float32)
+            if franka_task == FrankaTask.BinPick:
+                aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
                 aug_actions[:,:3] = actions[:,:3]
-                aug_actions[:,3] = np.cos(np.pi*actions[:,5])
-                aug_actions[:,4] = np.sin(np.pi*actions[:,5])
-                aug_actions[:,5:] = actions[:,6:]
+                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+                aug_actions[:,3] = np.cos(yaw)
+                aug_actions[:,4] = np.sin(yaw)
+                aug_actions[:,5] = actions[:,6]
+            elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.HangPush: 
+                aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
+                aug_actions[:,:3] = actions[:,:3]
             elif franka_task == FrankaTask.PlanarPush:
                 aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
                 aug_actions[:,:3] = actions[:,:3]
-                aug_actions[:,3] = np.cos(0.3*actions[:,5])
-                aug_actions[:,4] = np.sin(0.3*actions[:,5])
+                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+                aug_actions[:,3] = np.cos(yaw)
+                aug_actions[:,4] = np.sin(yaw)
             else:
-                aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
+                raise NotImplementedError()
+
             actions = aug_actions
 
-        if cfg.task.startswith("mw-") or cfg.task.startswith("adroit-"):
-            rewards = (
-                np.array(
-                    [
-                        _data[
-                            "success" if "success" in _data.keys() else "goal_achieved"
-                        ]
-                        for _data in data["infos"]
-                    ],
-                    dtype=np.float32,
-                )
-                - 1.0
-            )
-        elif cfg.task.startswith('franka-'):
             if cfg.real_robot:
-                rewards = recompute_real_rwd(cfg, state)
-            else:                
-                rewards = np.array([_data['success' if 'success' in _data.keys() else 'goal_achieved'] for _data in data['infos']], dtype=np.float32) - 1.
-        else:  # use dense rewards for DMControl
-            rewards = np.array(data["rewards"])
-        episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
-        episodes.append(episode)
+                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)
+            else:         
+                try:
+                    rewards = np.array(data['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
+                except KeyError:
+                    env_infos = stack_tensor_dict_list(data['env_infos'])
+                    rewards = np.array(env_infos['solved'][:cfg.episode_length], dtype=np.float32)-1.                     
+                
+            
+            episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
+            episodes.append(episode)
 
-        if len(episodes) % 10 == 0:
-            print('Loaded demo {} of {}'.format(len(episodes),cfg.demos))
-
+            if len(episodes) % 10 == 0:
+                print('Loaded demo {} of {}, reward {}'.format(len(episodes),cfg.demos, np.sum(rewards)))
     assert(len(episodes)==cfg.demos)
     return episodes
+
 
 def gather_paths_parallel(
     cfg,

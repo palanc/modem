@@ -87,6 +87,12 @@ h5_demos: false
 left_crops: ???
 top_crops: ???
 
+left_success_mask: ???
+right_success_mask: ???
+top_success_mask: ???
+bottom_success_mask: ???
+success_thresh: ???
+
 hydra:
     job:
         name: ${exp_name}

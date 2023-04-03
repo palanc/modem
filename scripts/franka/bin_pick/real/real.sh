@@ -2,7 +2,7 @@
 <<test
 python train.py \
     suite=franka \
-    task=franka-FrankaPickPlaceRandomReal_v2d  \
+    task=franka-FrankaBinPickReal_v2d  \
     exp_name=real_test \
     discount=0.95 \
     train_steps=100000 \
@@ -30,7 +30,7 @@ test
 
 python train.py \
     suite=franka \
-    task=franka-FrankaPickPlaceRandomReal_v2d  \
+    task=franka-FrankaBinPickReal_v2d  \
     exp_name=real_policy_smooth-centered \
     discount=0.95 \
     train_steps=100000 \

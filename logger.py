@@ -105,26 +105,26 @@ class TrajectoryPlotter:
                                       0,0,0,0,
                                       0,0,0,
                                       0,0,0]              
-            if 'PickPlace' in cfg.task:
-                self.act_labels = ['act_x','act_y','act_z','act_roll','act_pitch','act_yaw','act_grasp','act_term']
-                self.act_enabled = [1,1,1,0,0,1,1,0]
-                self.act_limits = {'low': np.array([-0.35, 0.25, 0.76, -np.pi, 0, -np.pi, 0.0, 0.0]),
-                                   'high': np.array([0.35, 0.75, 1.5, np.pi, 2*np.pi, 0, 0.04, 1.0])}
+            if 'BinPick' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z','act_cos', 'act_sin','act_grasp']
+                self.act_enabled = [1,1,1,1,1,1]
+                self.act_limits = {'low': np.array([0.368, -0.25, 0.9, -1, -1, 0.0]),
+                                   'high': np.array([0.72, 0.25, 1.3, 1, 1, 0.835])}
             elif 'PlanarPush' in cfg.task:
                 self.act_labels = ['act_x','act_y','act_z','act_cos','act_sin']
                 self.act_enabled = [1,1,1,1,1]
-                self.act_limits = {'low': np.array([-0.4, 0.3, 0.8, -1, -1]),
-                                   'high': np.array([0.4, 0.8, 0.9, 1, 1])}                
+                self.act_limits = {'low': np.array([0.3, -0.4, 0.865, -1, -1]),
+                                   'high': np.array([0.8, 0.4, 0.965, 1, 1])}                
             elif 'BinPush' in cfg.task:
                 self.act_labels = ['act_x','act_y','act_z']
                 self.act_enabled = [1,1,1]
-                self.act_limits = {'low': np.array([-0.275, 0.315, 0.825]),
-                                   'high': np.array([0.22, 0.695, 1.06])}
+                self.act_limits = {'low': np.array([0.315, -0.3, 0.89]),
+                                   'high': np.array([0.695, 0.275, 1.175])}
             elif 'HangPush' in cfg.task:
                 self.act_labels = ['act_x','act_y','act_z']
                 self.act_enabled = [1,1,1]
-                self.act_limits = {'low': np.array([-0.1, 0.3, 1.25]),
-                                   'high': np.array([0.1, 0.8, 1.5])}                
+                self.act_limits = {'low': np.array([0.3, -0.1, 1.25]),
+                                   'high': np.array([0.8, 0.1, 1.5])}                
             else:
                 raise NotImplementedError()
         else:

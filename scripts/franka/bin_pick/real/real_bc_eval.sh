@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python train.py \
-    task=franka-FrankaPickPlaceRandomReal_v2d  \
+    task=franka-FrankaBinPickReal_v2d  \
     suite=franka \
     exp_name=real_bc_smooth_eval-1000demosb \
     seed=120000 \
@@ -20,7 +20,8 @@ python train.py \
     logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
     demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
     bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth-3seed/bc_' \
-    h5_demos=true
+    h5_demos=true \
+    
     
     
     #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/half_bc/real_bc_seed'

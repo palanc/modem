@@ -25,9 +25,6 @@ from copy import deepcopy
 import logger
 import hydra
 
-from mj_envs.utils.collect_modem_rollouts_real import check_grasp_success
-from mj_envs.utils.policies.heuristic_policy import HeuristicPolicyReal
-from tasks.franka import recompute_real_rwd
 
 torch.backends.cudnn.benchmark = True
 import pickle
@@ -87,17 +84,6 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
             grasp_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
             if grasp_success:
                 ep_reward = torch.sum(new_rewards).item()
-
-            #_, latest_img, grasp_success, _, _ = check_grasp_success(env=env.base_env(), obs=None, force_img=True)
-            #if grasp_success:
-            #    states = torch.stack(states, dim=0)
-            #    ep_reward = torch.sum(recompute_real_rwd(cfg, states)).item()
-            #elif reset_pi is not None:
-            #    assert(latest_img is not None)
-            #    reset_pi.update_grasps(img=latest_img)
-            #    print('Executing reset policy (eval)')
-            #    reset_pi.do_rollout(horizon=cfg.episode_length)
-            #    check_grasp_success(env=env.base_env(), obs=None, just_drop=True)
 
             ep_success = 1 if grasp_success else 0
 
@@ -213,7 +199,7 @@ def train(cfg: dict):
         if cfg.bc_only:
             valid_demo_buffer = buffer
 
-        demos = get_demos(cfg) if not cfg.h5_demos else get_demos_h5(cfg, env)
+        demos = get_demos(cfg, env) if not cfg.h5_demos else get_demos_h5(cfg, env)
 
         for i,episode in enumerate(demos):
             if valid_demo_buffer is not None and i % 10 == 0:
@@ -281,24 +267,6 @@ def train(cfg: dict):
             if grasp_success:
                 episode.reward = new_rewards
                 episode.cumulative_reward = torch.sum(episode.reward).item()
-
-
-            #_, latest_img, grasp_success, _, _ = check_grasp_success(env.base_env(), obs=None, force_img=(consec_train_fails>=RESET_PI_THRESH-1))
-            #info['success'] = int(grasp_success)
-            #if grasp_success:
-            #    print('Recomputing reward')
-            #    episode.reward = recompute_real_rwd(cfg, episode.state)
-            #    episode.cumulative_reward = torch.sum(episode.reward).item()
-            #    consec_train_fails = 0
-            #else:
-            #    consec_train_fails += 1
-            #    if consec_train_fails >= RESET_PI_THRESH:
-            #        assert(latest_img is not None)
-            #        reset_pi.update_grasps(img=latest_img)
-            #        print('Executing reset policy (train)')
-            #        reset_pi.do_rollout(horizon=cfg.episode_length)
-            #        check_grasp_success(env.base_env(), obs=None, just_drop=True)
-            #        consec_train_fails = 0
 
             episode_fn = 'rollout'+f'{(step//cfg.episode_length):010d}.pt'
             episode_path = episode_dir+'/'+episode_fn

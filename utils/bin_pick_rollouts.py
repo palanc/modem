@@ -22,9 +22,9 @@ import cv2
 import random
 import torch
 
-OBJ_POS_LOW = [0.368, -0.25, 0.91] #[-0.35,0.25,0.91]
-OBJ_POS_HIGH = [0.72, 0.25, 0.91] #[0.35,0.65,0.91]
+# python bin_pick_rollouts.py -e FrankaBinPickReal_v2d -m evaluation -r none -o /mnt/raid5/data/plancaster/robohive_base/demonstrations -on robopen07
 
+DESC='script for collecting bin picking demos on real robot'
 # MAIN =========================================================
 @click.command(help=DESC)
 @click.option('-e', '--env_name', type=str, help='environment to load', required= True)
@@ -69,8 +69,6 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
 
         if latest_img is not None and (grasp_centers is None or len(grasp_centers) <= 0):
             grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
-                                                                      obj_pos_low=OBJ_POS_LOW,
-                                                                      obj_pos_high=OBJ_POS_HIGH,
                                                                       out_dir=output_dir+'/debug')
 
         if grasp_centers is not None and len(grasp_centers) > 0:
@@ -89,10 +87,10 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             filtered_boxes.pop()
             print('Vision obj pos')
         else:
-            real_obj_pos = np.random.uniform(low=OBJ_POS_LOW, high=OBJ_POS_HIGH)
+            real_obj_pos = np.random.uniform(low=[0.368, -0.25, 0.91], high=[0.72, 0.25, 0.91])
             print('Random obj pos')            
         
-        obs = self.env.reset()
+        obs = env.reset()
         obs = open_gripper(env, obs)
         pi.set_real_obj_pos(real_obj_pos)
         pi.set_real_tar_pos(real_tar_pos)

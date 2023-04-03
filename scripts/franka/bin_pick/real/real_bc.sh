@@ -2,7 +2,7 @@
 
 <<test
 python train.py \
-    task=franka-FrankaPickPlaceRandomReal_v2d  \
+    task=franka-FrankaBinPickReal_v2d  \
     suite=franka \
     exp_name=test \
     seed=1 \
@@ -20,7 +20,7 @@ test
 
 # Train bc policies for real 
 python train.py -m \
-    task=franka-FrankaPickPlaceRandomReal_v2d  \
+    task=franka-FrankaBinPickReal_v2d  \
     suite=franka \
     exp_name=smooth_bc_1000_demos-all-yaw \
     seed=1,2,3,4,5,6,7,8,9,10 \

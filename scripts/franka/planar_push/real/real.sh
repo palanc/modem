@@ -25,7 +25,12 @@
 #    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
 #    seed_steps=300 \
 #    eval_episodes=3 \
-#    h5_demos=true
+#    h5_demos=true \
+#    left_success_mask=50 \
+#    right_success_mask=140 \
+#    top_success_mask=105 \
+#    bottom_success_mask=145 \
+#    success_thresh=0.2 \ 
 
 #   #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/real_bc/half_bc_seed' \
 #test
@@ -57,7 +62,12 @@ python train.py \
     logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
     demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
     eval_freq=5000\
-    h5_demos=true
+    h5_demos=true \
+    left_success_mask=50 \
+    right_success_mask=140 \
+    top_success_mask=105 \
+    bottom_success_mask=145 \
+    success_thresh=0.2 \     
 
 echo "Exiting script"
 

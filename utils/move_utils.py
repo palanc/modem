@@ -2,6 +2,8 @@ import os
 import gym
 import cv2
 import numpy as np
+import random
+import time
 
 MAX_GRIPPER_OPEN = 0.0002
 MIN_GRIPPER_CLOSED = 0.8228
@@ -23,6 +25,9 @@ MASK_START_Y = 57-16 #30
 MASK_END_Y = 170-16 #220
 
 DIFF_THRESH = 0.15
+
+OBJ_POS_LOW = [0.368, -0.25, 0.91] #[-0.35,0.25,0.91]
+OBJ_POS_HIGH = [0.72, 0.25, 0.91] #[0.35,0.65,0.91]
 
 def is_moving(prev, cur, tol):
     return np.linalg.norm(cur-prev) > tol
@@ -222,7 +227,7 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
 
     return mean_diff, latest_img, mean_diff > DIFF_THRESH, pre_drop_img, post_drop_img
 
-def update_grasps(img, obj_pos_low, obj_pos_high, out_dir=None):
+def update_grasps(img, out_dir=None):
     if out_dir is not None and not os.path.isdir(out_dir):
         os.mkdir(out_dir)
     bin_mask = np.zeros(img.shape, dtype=np.uint8)
@@ -270,7 +275,7 @@ def update_grasps(img, obj_pos_low, obj_pos_high, out_dir=None):
         grasp_x = SCALE * (PIX_FROM_TOP - (y+(h/2.0))) + DIST_FROM_BASE
         grasp_y = SCALE * ((x+(w/2.0)) - PIX_FROM_LEFT) - DIST_FROM_CENTER
 
-        if (grasp_x >= obj_pos_low[0] and grasp_x <= obj_pos_high[0] and
-            grasp_y >= obj_pos_low[1] and grasp_y <= obj_pos_high[1]):
+        if (grasp_x >= OBJ_POS_LOW[0] and grasp_x <= OBJ_POS_HIGH[0] and
+            grasp_y >= OBJ_POS_LOW[1] and grasp_y <= OBJ_POS_HIGH[1]):
             grasp_centers.append((grasp_x,grasp_y))
     return grasp_centers, filtered_boxes, img_masked

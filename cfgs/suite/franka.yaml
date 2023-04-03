@@ -8,3 +8,8 @@ demo_schedule: linear(0.75, 0.25, 50000)
 camera_views: [left_cam]
 left_crops: [0]
 top_crops: [0]
+left_success_mask: 0
+right_success_mask: 0
+top_success_mask: 0
+bottom_success_mask: 0
+success_thresh: 0.0

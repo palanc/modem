@@ -20,6 +20,11 @@ python train.py \
     logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
     demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/franka-FrankaBinPushReal_v2d' \
     bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/bin_push/real_bin_push_seed' \
-    h5_demos=true
+    h5_demos=true \
+    left_success_mask=105 \
+    right_success_mask=122 \
+    top_success_mask=120 \
+    bottom_success_mask=138 \
+    success_thresh=0.5 \
     
     #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/half_bc/real_bc_seed'

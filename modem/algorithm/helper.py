@@ -405,6 +405,10 @@ def get_demos(cfg, env):
         for p_idx, path in enumerate(paths):
             data = path['Trial{}'.format(p_idx)]
 
+            assert(data['success'].all() or not data['success'].any())
+            if not data['success'].any():
+                continue
+
             # Get images
             views = []            
             if cfg.img_size <= 0:

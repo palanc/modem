@@ -1,25 +1,29 @@
 #!/bin/bash
 
-python train.py \
+python reward_viz.py \
     task=franka-FrankaBinPushReal_v2d  \
-    suite=franka \
-    exp_name=real_bin_push_eval \
-    seed=0 \
-    demos=0 \
+    exp_name=bin_push_reward_viz \
+    discount=0.95 \
+    train_steps=100000 \
+    seed=1 \
+    demos=100 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \
     episode_length=100 \
+    save_freq=1000 \
     camera_views=[top_cam] \
     left_crops=[116] \
     top_crops=[16] \
-    bc_only=true \
     real_robot=true \
     action_repeat=1 \
-    min_std=0.05\
+    plan_policy=true \
+    bc_rollout=true \
+    bc_q_pol=true \
+    seed_steps=5000 \
     logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
-    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/franka-FrankaBinPushReal_v2d' \
-    bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/bin_push/real_bin_push_seed' \
+    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
+    eval_freq=5000\
     h5_demos=true \
     success_mask_left=108 \
     success_mask_right=122 \
@@ -27,5 +31,4 @@ python train.py \
     success_mask_bottom=143 \
     success_thresh=0.5 \
     success_uv=[-52,68] \
-    
-    #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/half_bc/real_bc_seed'
+    hydra/launcher=local

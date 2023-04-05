@@ -71,7 +71,7 @@ class FrankaWrapper(gym.Wrapper):
                                                 top_crop=self.cfg.success_mask_top, 
                                                 bottom_crop=self.cfg.success_mask_bottom, 
                                                 thresh_val=self.cfg.success_thresh, 
-                                                target_uv=np.array([0,0.55]),
+                                                target_uv=np.array(env.cfg.success_uv),
                                                 render=False)
 
     @property
@@ -112,10 +112,17 @@ class FrankaWrapper(gym.Wrapper):
 
         img_views = []
         for i,camera_name in enumerate(self.camera_names):
+
             rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
             depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
             vis_obs_dict = self.env.get_visuals(sim=self.env.sim,
                                                 visual_keys=[rgb_key, depth_key])
+            if rgb_key not in vis_obs_dict or depth_key not in vis_obs_dict:
+                rgb_key = 'rgb:'+camera_name+':240x424:2d'
+                depth_key = 'd:'+camera_name+':240x424:2d'
+                vis_obs_dict = self.env.get_visuals(sim=self.env.sim,
+                                                    visual_keys=[rgb_key, depth_key])    
+
             rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
             rgb_img = rgb_img[:,
                               self.cfg.top_crops[i]:self.cfg.top_crops[i]+self.cfg.img_size,
@@ -195,7 +202,7 @@ class FrankaWrapper(gym.Wrapper):
 
         
         for _ in range(self.cfg.action_repeat):
-            obs, r, _, info = self.env.step(aug_action)
+            obs, r, _, info = self.env.unwrapped.step(aug_action, update_exteroception=True)
             reward += r
         self._state_obs = self._get_state_obs(obs)
         obs = self._get_pixel_obs()
@@ -253,7 +260,7 @@ class FrankaWrapper(gym.Wrapper):
                     else:
                         real_obj_pos = np.random.uniform(low=[0.368, -0.25, 0.91], high=[0.72, 0.25, 0.91])                    
                     obs = self.env.reset()
-                    obs = open_gripper(self.env, obs)
+                    obs, env_info = open_gripper(self.env, obs)
                     self.reset_pi.set_real_obj_pos(real_obj_pos)
                     self.reset_pi.set_real_tar_pos(np.array([0.0, 0.5, 1.1]))
                     self.reset_pi.set_real_yaw(np.random.uniform(low = -3.14, high = 0))

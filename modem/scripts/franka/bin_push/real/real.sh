@@ -26,11 +26,12 @@
 #    seed_steps=300 \
 #    eval_episodes=3 \
 #    h5_demos=true \
-#    left_success_mask=105 \
-#    right_success_mask=122 \
-#    top_success_mask=120 \
-#    bottom_success_mask=138 \
+#    success_mask_left=108 \
+#    success_mask_right=122 \
+#    success_mask_top=109 \
+#    success_mask_bottom=143 \
 #    success_thresh=0.5 \
+#    success_uv=[-52,68] \
 
 #   #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/real_bc/half_bc_seed' \
 #test
@@ -62,11 +63,12 @@ python train.py \
     demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
     eval_freq=5000\
     h5_demos=true \
-    left_success_mask=105 \
-    right_success_mask=122 \
-    top_success_mask=120 \
-    bottom_success_mask=138 \
-    success_thresh=0.5 \    
+    success_mask_left=108 \
+    success_mask_right=122 \
+    success_mask_top=109 \
+    success_mask_bottom=143 \
+    success_thresh=0.5 \
+    success_uv=[-52,68] \
 
     #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/real_bc/half_bc_seed' \
 

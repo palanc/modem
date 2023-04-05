@@ -16,11 +16,12 @@ python train.py \
     top_crops=[16] \
     bc_only=true \
     h5_demos=true \
-    left_success_mask=105 \
-    right_success_mask=122 \
-    top_success_mask=120 \
-    bottom_success_mask=138 \
-    success_thresh=0.5 \     
+    success_mask_left=108 \
+    success_mask_right=122 \
+    success_mask_top=109 \
+    success_mask_bottom=143 \
+    success_thresh=0.5 \
+    success_uv=[-52,68] \ 
 test
 
 # Train bc policies for real 
@@ -39,9 +40,10 @@ python train.py -m \
     top_crops=[16] \
     bc_only=true \
     h5_demos=true \
-    left_success_mask=105 \
-    right_success_mask=122 \
-    top_success_mask=120 \
-    bottom_success_mask=138 \
+    success_mask_left=108 \
+    success_mask_right=122 \
+    success_mask_top=109 \
+    success_mask_bottom=143 \
     success_thresh=0.5 \
+    success_uv=[-52,68] \
     hydra/launcher=slurm &

@@ -22,8 +22,7 @@ import cv2
 import random
 import torch
 
-# python bin_pick_rollouts.py -e FrankaBinPickReal_v2d -m evaluation -r none -o /mnt/raid5/data/plancaster/robohive_base/demonstrations -on robopen07
-
+# python bin_pick_rollouts.py -e FrankaBinPickReal_v2d-v0 -m evaluation -r none -o /mnt/raid5/data/plancaster/robohive_base/demonstrations/franka-FrankaBinPick_v2d -on robopen07_
 DESC='script for collecting bin picking demos on real robot'
 # MAIN =========================================================
 @click.command(help=DESC)
@@ -59,7 +58,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
     rollouts = 0
     successes = 0
 
-    real_tar_pos = np.array([0.0, 0.5, 1.1])
+    real_tar_pos = np.array([0.5, 0.0, 1.1])
     latest_img  = None
     grasp_centers = None
     filtered_boxes = None
@@ -90,8 +89,9 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             real_obj_pos = np.random.uniform(low=[0.368, -0.25, 0.91], high=[0.72, 0.25, 0.91])
             print('Random obj pos')            
         
-        obs = env.reset()
-        obs = open_gripper(env, obs)
+        #obs = env.reset()
+        #obs, env_info = open_gripper(env, obs)
+        print('real obj pos {}'.format(real_obj_pos))
         pi.set_real_obj_pos(real_obj_pos)
         pi.set_real_tar_pos(real_tar_pos)
         pi.set_real_yaw(np.random.uniform(low = -3.14, high = 0))

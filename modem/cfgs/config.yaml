@@ -48,7 +48,7 @@ mlp_dim: 512
 latent_dim: 50
 
 # wandb (required: fill in your details)
-wandb_project: modem
+wandb_project: robohive
 wandb_entity: palanc
 
 # dirs (required: fill in your details)

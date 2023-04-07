@@ -271,12 +271,17 @@ class FrankaWrapper(gym.Wrapper):
                 if eval_mode or self.consec_train_fails >= self.RESET_PI_THRESH:
                     assert(latest_img is not None)
                     print('Executing reset policy ({})'.format('eval' if eval_mode else 'train'))
-                    grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                                                                              out_dir=None)
-                    if grasp_centers is not None and len(grasp_centers) > 0:
-                        real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
-                    else:
-                        real_obj_pos = np.random.uniform(low=[0.368, -0.25, 0.91], high=[0.72, 0.25, 0.91])                    
+                    grasp_centers = []
+                    while(len(grasp_centers) <= 0):
+                        grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
+                                                                                out_dir=None)
+                        if len(grasp_centers) <= 0:
+                            input('Block not detected, enter to continue')
+                            print('Taking new block image')
+                            _, latest_img, _, _, _ = check_grasp_success(env=self.env, obs=None, force_img=True)
+                    
+                    real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
+
                     obs = self.env.reset()
                     obs, env_info = open_gripper(self.env, obs)
                     self.reset_pi.set_real_obj_pos(real_obj_pos)

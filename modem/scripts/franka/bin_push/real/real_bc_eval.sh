@@ -3,8 +3,8 @@
 python train.py \
     task=franka-FrankaBinPushReal_v2d  \
     suite=franka \
-    exp_name=real_bin_push_eval \
-    seed=0 \
+    exp_name=real_bin_push_bc_eval_100demo \
+    seed=1 \
     demos=0 \
     img_size=224 \
     lr=3e-4 \
@@ -17,15 +17,12 @@ python train.py \
     real_robot=true \
     action_repeat=1 \
     min_std=0.05\
-    logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
-    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/franka-FrankaBinPushReal_v2d' \
-    bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/bin_push/real_bin_push_seed' \
-    h5_demos=true \
+    logging_dir='/mnt/raid5/plancaster/data/robohive_base' \
+    demo_dir='/mnt/raid5/plancaster/data/robohive_base' \
+    bc_model_fp='/mnt/raid5/plancaster/data/robohive_base/franka-FrankaBinPushReal_v2d/bin_push_real_bc_100demos/bc_seed' \
     success_mask_left=108 \
     success_mask_right=122 \
     success_mask_top=109 \
     success_mask_bottom=143 \
     success_thresh=0.5 \
-    success_uv=[-52,68] \
-    
-    #bc_model_fp='/mnt/nfs_code/robopen_users/plancaster/remodem/models/single_block/smooth/half_bc/real_bc_seed'
+    success_uv=[-52,68] 

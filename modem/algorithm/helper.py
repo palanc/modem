@@ -393,122 +393,160 @@ def get_demos_h5(cfg, env):
     assert(len(episodes)==cfg.demos)
     return episodes
 
+def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
+
+    episodes = []
+
+    for pname, pdata in trace.trace.items():                  
+        successful_trial = True
+
+        if not is_demo or exclude_fails:
+            assert('success' in pdata)
+            assert(pdata['success'].all() or not pdata['success'].any())
+            successful_trial = pdata['success'].all()
+        
+        if exclude_fails and not successful_trial:
+            print('skipping trial')
+            continue
+
+        # Get images
+        views = []            
+        if cfg.img_size <= 0:
+            views.append(np.zeros((cfg.episode_length+1,3,10,10)))
+        else:
+            for i, cam in enumerate(cfg.camera_views):
+                rgb_key = 'env_infos/visual_dict/rgb:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
+                d_key = 'env_infos/visual_dict/d:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
+                if (rgb_key not in pdata) or (d_key not in pdata):
+                    rgb_key = 'env_infos/visual_dict/rgb:'+cam+':240x424:2d'
+                    d_key = 'env_infos/visual_dict/d:'+cam+':240x424:2d'                      
+                assert(rgb_key in pdata
+                    and d_key in pdata)
+                lc = cfg.left_crops[i]
+                tc = cfg.top_crops[i]                
+                rgb_imgs = pdata[rgb_key][:].transpose(0,3,1,2)
+                rgb_imgs = rgb_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                depth_imgs = pdata[d_key][:]
+                depth_imgs = depth_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
+                views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
+        obs = np.stack(views, axis=1)
+
+        qp = pdata['env_infos/obs_dict/qp'][:cfg.episode_length+1]
+        qv = pdata['env_infos/obs_dict/qv'][:cfg.episode_length+1]
+        grasp_pos = pdata['env_infos/obs_dict/grasp_pos'][:cfg.episode_length+1]
+        grasp_rot = pdata['env_infos/obs_dict/grasp_rot'][:cfg.episode_length+1]
+        obj_err = pdata['env_infos/obs_dict/object_err'][:cfg.episode_length+1]
+        tar_err = pdata['env_infos/obs_dict/target_err'][:cfg.episode_length+1]
+        assert((np.abs(qp[1:]-qp[0]) > 1e-5).any())
+        #assert((np.abs(qv[1:]-qv[0]) > 1e-5).any())
+        assert((np.abs(grasp_pos[1:]-grasp_pos[0]) > 1e-5).any())
+        assert((np.abs(grasp_rot[1:]-grasp_rot[0]) > 1e-5).any())
+
+        if cfg.img_size > 0:                
+            state = np.concatenate([qp[:,:9],
+                                    qv[:,:9],
+                                    grasp_pos,
+                                    grasp_rot], axis=1)
+        else:   
+            assert((np.abs(obj_err[1:]-obj_err[0]) > 1e-5).any())
+            assert((np.abs(tar_err[1:]-tar_err[0]) > 1e-5).any())
+            state = np.concatenate([qp,
+                                    qv,
+                                    grasp_pos,
+                                    grasp_rot,
+                                    obj_err,
+                                    tar_err], axis=1)
+
+        state = torch.tensor(state, dtype=torch.float32)
+
+
+        actions = np.array(pdata['actions'])[:cfg.episode_length].clip(-1,1)
+        assert actions.shape[1] == 7  
+        if 'BinPush' in cfg.task:
+            franka_task = FrankaTask.BinPush
+        elif 'HangPush' in cfg.task:
+            franka_task = FrankaTask.HangPush
+        elif 'PlanarPush' in cfg.task:
+            franka_task = FrankaTask.PlanarPush
+        elif 'BinPick' in cfg.task:
+            franka_task = FrankaTask.BinPick
+        else:
+            raise NotImplementedError()
+
+        if franka_task == FrankaTask.BinPick:
+            aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
+            aug_actions[:,:3] = actions[:,:3]
+            yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+            aug_actions[:,3] = np.cos(yaw)
+            aug_actions[:,4] = np.sin(yaw)
+            aug_actions[:,5] = actions[:,6]
+        elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.HangPush: 
+            aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
+            aug_actions[:,:3] = actions[:,:3]
+        elif franka_task == FrankaTask.PlanarPush:
+            aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
+            aug_actions[:,:3] = actions[:,:3]
+            yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+            aug_actions[:,3] = np.cos(yaw)
+            aug_actions[:,4] = np.sin(yaw)
+        else:
+            raise NotImplementedError()
+
+        actions = aug_actions
+
+        if cfg.real_robot:
+            rewards = torch.zeros((cfg.episode_length,), 
+                                    dtype=torch.float32, 
+                                    device=states.device)-1.0            
+            if franka_task == FrankaTask.BinPick
+                if successful_trial:
+                    rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)                
+            elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush: 
+                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh) 
+            else:
+                raise NotImplementedError()            
+        else:         
+            rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
+            
+        episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
+        episodes.append(episode)
+    
+    return episodes
+
 def get_demos(cfg, env):
     fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
     episodes = []
     assert(cfg.task.startswith('franka-'))
 
+    if 'BinPush' in cfg.task:
+        franka_task = FrankaTask.BinPush
+    elif 'HangPush' in cfg.task:
+        franka_task = FrankaTask.HangPush
+    elif 'PlanarPush' in cfg.task:
+        franka_task = FrankaTask.PlanarPush
+    elif 'BinPick' in cfg.task:
+        franka_task = FrankaTask.BinPick
+    else:
+        raise NotImplementedError()
+    exclude_fails = cfg.real_robot and (franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush)
+
     for fp in fps:   
         if len(episodes) >= cfg.demos:
             break        
         paths = Trace.load(fp)
-        for pname, pdata in paths.trace.items():
-        
+
+        paths_episodes = trace2episodes(cfg=cfg,
+                                        env=env,
+                                        trace=paths,
+                                        exclude_fails=exclude_fails,
+                                        is_demo=True)
+        for i in range(len(paths_episodes)):
             if len(episodes) >= cfg.demos:
-                break                      
-
-            if 'success' in pdata:
-                assert(pdata['success'].all() or not pdata['success'].any())
-                if not pdata['success'].any():
-                    print('skipping trial')
-                    continue
-
-            # Get images
-            views = []            
-            if cfg.img_size <= 0:
-                views.append(np.zeros((cfg.episode_length+1,3,10,10)))
-            else:
-                for i, cam in enumerate(cfg.camera_views):
-                    rgb_key = 'env_infos/visual_dict/rgb:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
-                    d_key = 'env_infos/visual_dict/d:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
-                    if (rgb_key not in pdata) or (d_key not in pdata):
-                        rgb_key = 'env_infos/visual_dict/rgb:'+cam+':240x424:2d'
-                        d_key = 'env_infos/visual_dict/d:'+cam+':240x424:2d'                      
-                    assert(rgb_key in pdata
-                        and d_key in pdata)
-                    lc = cfg.left_crops[i]
-                    tc = cfg.top_crops[i]                
-                    rgb_imgs = pdata[rgb_key][:].transpose(0,3,1,2)
-                    rgb_imgs = rgb_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
-                    depth_imgs = pdata[d_key][:]
-                    depth_imgs = depth_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
-                    views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
-            obs = np.stack(views, axis=1)
-
-            qp = pdata['env_infos/obs_dict/qp'][:cfg.episode_length+1]
-            qv = pdata['env_infos/obs_dict/qv'][:cfg.episode_length+1]
-            grasp_pos = pdata['env_infos/obs_dict/grasp_pos'][:cfg.episode_length+1]
-            grasp_rot = pdata['env_infos/obs_dict/grasp_rot'][:cfg.episode_length+1]
-            obj_err = pdata['env_infos/obs_dict/object_err'][:cfg.episode_length+1]
-            tar_err = pdata['env_infos/obs_dict/target_err'][:cfg.episode_length+1]
-            assert((np.abs(qp[1:]-qp[0]) > 1e-5).any())
-            #assert((np.abs(qv[1:]-qv[0]) > 1e-5).any())
-            assert((np.abs(grasp_pos[1:]-grasp_pos[0]) > 1e-5).any())
-            assert((np.abs(grasp_rot[1:]-grasp_rot[0]) > 1e-5).any())
-
-            if cfg.img_size > 0:                
-                state = np.concatenate([qp[:,:9],
-                                        qv[:,:9],
-                                        grasp_pos,
-                                        grasp_rot], axis=1)
-            else:   
-                assert((np.abs(obj_err[1:]-obj_err[0]) > 1e-5).any())
-                assert((np.abs(tar_err[1:]-tar_err[0]) > 1e-5).any())
-                state = np.concatenate([qp,
-                                        qv,
-                                        grasp_pos,
-                                        grasp_rot,
-                                        obj_err,
-                                        tar_err], axis=1)
-
-            state = torch.tensor(state, dtype=torch.float32)
-
-
-            actions = np.array(pdata['actions'])[:cfg.episode_length].clip(-1,1)
-            assert actions.shape[1] == 7  
-            if 'BinPush' in cfg.task:
-                franka_task = FrankaTask.BinPush
-            elif 'HangPush' in cfg.task:
-                franka_task = FrankaTask.HangPush
-            elif 'PlanarPush' in cfg.task:
-                franka_task = FrankaTask.PlanarPush
-            elif 'BinPick' in cfg.task:
-                franka_task = FrankaTask.BinPick
-            else:
-                raise NotImplementedError()
-
-            if franka_task == FrankaTask.BinPick:
-                aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
-                aug_actions[:,3] = np.cos(yaw)
-                aug_actions[:,4] = np.sin(yaw)
-                aug_actions[:,5] = actions[:,6]
-            elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.HangPush: 
-                aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-            elif franka_task == FrankaTask.PlanarPush:
-                aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
-                aug_actions[:,3] = np.cos(yaw)
-                aug_actions[:,4] = np.sin(yaw)
-            else:
-                raise NotImplementedError()
-
-            actions = aug_actions
-
-            if cfg.real_robot:
-                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)
-            else:         
-                rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
-                
-            
-            episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
-            episodes.append(episode)
-
-            if len(episodes) % 10 == 0:
-                print('Loaded demo {} of {}, reward {}'.format(len(episodes),cfg.demos, np.sum(rewards)))
+                break
+            episodes.append(paths_episodes[i])      
+            if len(episodes) > 0 and len(episodes) % 10 == 0:
+                print('Loaded demo {} of {}, reward {}'.format(len(episodes),cfg.demos, np.sum(episodes[-1].rewards)))
+    
     assert(len(episodes)==cfg.demos)
     return episodes
 

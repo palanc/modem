@@ -19,12 +19,12 @@ from pathlib import Path
 from cfg_parse import parse_cfg
 from env import make_env, set_seed
 from algorithm.tdmpc import TDMPC
-from algorithm.helper import Episode, get_demos,get_demos_h5, ReplayBuffer, linear_schedule, do_policy_rollout
+from algorithm.helper import Episode, get_demos,get_demos_h5, ReplayBuffer, linear_schedule, do_policy_rollout, trace2episodes
 from termcolor import colored
 from copy import deepcopy
 import logger
 import hydra
-
+from robohive.logger.grouped_datasets import Trace
 
 torch.backends.cudnn.benchmark = True
 import pickle
@@ -81,11 +81,11 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
-            grasp_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
-            if grasp_success:
+            task_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
+            if task_success:
                 ep_reward = torch.sum(new_rewards).item()
 
-            ep_success = 1 if grasp_success else 0
+            ep_success = 1 if task_success else 0
 
         episode_states.append(np.stack([state.cpu().numpy() for state in states],axis=0))
         episode_actions.append(np.stack(actions, axis=0))
@@ -181,10 +181,17 @@ def train(cfg: dict):
     # Load past episodes
     if cfg.real_robot:
         for i in range(start_step//cfg.episode_length):
-            episode_fn = 'rollout'+f'{(i):010d}.pt'
-            episode_path = episode_dir+'/'+episode_fn     
-            with open(episode_path, "rb") as ep_file:
-                buffer += pickle.load(ep_file)        
+            trace_fn = 'rollout'+f'{(i):010d}.pickle'
+            trace_path = episode_dir+'/'+trace_fn   
+
+            paths = Trace.load(trace_path)
+            paths_episodes = trace2episodes(cfg=cfg,
+                                            env=env,
+                                            trace=paths,
+                                            exclude_fails=False,
+                                            is_demo=False)
+            assert(len(paths_episodes)==1)
+            buffer += paths_episodes[0]       
             print('Loaded episode {} of {}'.format(i+1,start_step//cfg.episode_length))
         print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
         #consec_train_fails = 0
@@ -234,6 +241,9 @@ def train(cfg: dict):
         # Collect trajectory
         obs = env.reset()
         episode = Episode(cfg, obs, env.state)
+    
+        trace = Trace('rollout'+f'{(step//cfg.episode_length):010d}')
+        trace.create_group('Trial0')
 
         planner = agent.plan
         plan_step = step
@@ -252,9 +262,11 @@ def train(cfg: dict):
                 action = planner(obs, env.state, mean=mean, std=std, step=plan_step, t0=episode.first,q_pol=q_pol, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())         
             else:
                 action = planner(obs, env.state, step=plan_step, t0=episode.first, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
+            trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
 
+        trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
         assert (
             len(episode) == cfg.episode_length
         ), f"Episode length {len(episode)} != {cfg.episode_length}"
@@ -262,18 +274,19 @@ def train(cfg: dict):
         if cfg.real_robot:
             print('Checking success')
 
-            grasp_success, new_rewards = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
-            info['success'] = int(grasp_success)
-            if grasp_success:
+            task_success, new_rewards = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
+            info['success'] = int(task_success)
+            if task_success:
                 episode.reward = new_rewards
                 episode.cumulative_reward = torch.sum(episode.reward).item()
 
-            episode_fn = 'rollout'+f'{(step//cfg.episode_length):010d}.pt'
-            episode_path = episode_dir+'/'+episode_fn
-            print('Saving')
-            with open(episode_path, 'wb') as epf:
-                pickle.dump(episode, epf)   
-            print('Done saving')         
+            trace.append_datums(group_key='Trial0', dataset_key_val={'success':np.array([task_success]*(cfg.episode_length+1))})
+            trace_fn = trace.name + '.pickle'
+            trace_path = episode_dir+'/'+trace_fn
+            print('Saving {}'.format(trace_path))
+            trace.close()
+            trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
+        
         buffer += episode
 
         # Update model

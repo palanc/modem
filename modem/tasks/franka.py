@@ -183,8 +183,7 @@ class FrankaWrapper(gym.Wrapper):
             self._frames.append(obs)
         return self._stacked_obs()            
 
-    def step(self, action):
-        reward = 0
+    def get_base_env_action(self, action):
         aug_action = np.zeros(7, dtype=action.dtype)
         if self.franka_task == FrankaTask.BinPick:
             aug_action[:3] = action[:3]
@@ -200,8 +199,10 @@ class FrankaWrapper(gym.Wrapper):
             if self.franka_task == FrankaTask.PlanarPush:
                 aug_action[5] = np.arctan2(action[4], action[3])
                 aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
+        return aug_action
 
-        '''
+    def get_trace_dict(self, action):
+        aug_action = self.get_base_env_action(action)
         cur_obs = self.env.obsdict2obsvec(self.env.obs_dict, self.env.obs_keys),
         cur_env_info = self.env.get_env_infos()
         trace_dict = dict(time=self.env.time,
@@ -210,42 +211,17 @@ class FrankaWrapper(gym.Wrapper):
                           rewards=cur_env_info['rwd_'+self.env.rwd_mode],
                           env_infos=cur_env_info,
                           done=bool(cur_env_info['done']))
-        
-        import copy
-        tract_dict_copy = copy.deepcopy(trace_dict)
-        '''
+        return trace_dict
+
+    def step(self, action):
+        reward = 0
+
+        aug_action = self.get_base_env_action(action)
         
         for _ in range(self.cfg.action_repeat):
             obs, r, _, info = self.env.unwrapped.step(aug_action, update_exteroception=True)
             reward += r
-        '''
-        import collections
-        def check_dict_copy(o1, o2):
-            is_copy = True
-            if type(o1) == dict or type(o1)==collections.OrderedDict:                
-                for key in o1.keys():
-                    val = check_dict_copy(o1[key], o2[key])
-                    print(key)
-                    is_copy = is_copy and val
-            elif type(o1) == list or type(o1) == tuple:
-                for i in range(len(o1)):
-                    is_copy = is_copy and check_dict_copy(o1[i], o2[i])
-            elif type(o1) == bool:
-                is_copy = (o1 and o2) or (not o1 and not o2)
-            elif o1 is None:
-                is_copy = (o1 is None) and (o2 is None)
-            else:
-                if type(o1) == np.bool_:
-                    is_copy = not (o1 ^ o2)
-                elif type(o1) == np.ndarray and (o1.dtype==bool or o1.dtype==np.bool_):
-                    is_copy = not (o1 ^ o2).any()
-                else:
-                    is_copy = np.linalg.norm(o1-o2) < 1e-8
-                
-            return is_copy
 
-
-        '''
         self._state_obs = self._get_state_obs(obs)
         obs = self._get_pixel_obs()
         self._frames.append(obs)

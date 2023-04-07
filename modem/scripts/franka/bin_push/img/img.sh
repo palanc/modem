@@ -23,8 +23,8 @@ python train.py \
     top_crops=[0] \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base'
-
 test
+
 
 python train.py -m \
     task=franka-FrankaBinPush_v2d  \
@@ -47,6 +47,5 @@ python train.py -m \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
-
 
 

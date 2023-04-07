@@ -11,7 +11,7 @@ python train.py \
     batch_size=256 \
     episode_length=100 \
     camera_views=[left_cam,right_cam] \
-    left_crops=[115,155] \ 
+    left_crops=[115,155] \
     top_crops=[0,0] \
     bc_only=true 
 test
@@ -31,4 +31,3 @@ python train.py -m \
     top_crops=[0,0] \
     bc_only=true \
     hydra/launcher=slurm
-    

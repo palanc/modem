@@ -1,6 +1,6 @@
 #!/bin/bash
 
-
+<<test
 python train.py \
     task=franka-FrankaBinPick_v2d  \
     exp_name=test \
@@ -23,17 +23,15 @@ python train.py \
     top_crops=[0,0] \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' 
+test
 
-
-
-<<com
 python train.py -m \
     task=franka-FrankaBinPick_v2d  \
     exp_name=bin_pick_img \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \
-    demos=100 \
+    demos=1000 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \
@@ -48,5 +46,3 @@ python train.py -m \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
-
-com

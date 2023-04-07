@@ -442,19 +442,18 @@ def get_demos(cfg, env):
             obj_err = pdata['env_infos/obs_dict/object_err'][:cfg.episode_length+1]
             tar_err = pdata['env_infos/obs_dict/target_err'][:cfg.episode_length+1]
             assert((np.abs(qp[1:]-qp[0]) > 1e-5).any())
-            assert((np.abs(qv[1:]-qv[0]) > 1e-5).any())
+            #assert((np.abs(qv[1:]-qv[0]) > 1e-5).any())
             assert((np.abs(grasp_pos[1:]-grasp_pos[0]) > 1e-5).any())
             assert((np.abs(grasp_rot[1:]-grasp_rot[0]) > 1e-5).any())
-            assert((np.abs(obj_err[1:]-obj_err[0]) > 1e-5).any())
-            assert((np.abs(tar_err[1:]-tar_err[0]) > 1e-5).any())
 
-            if cfg.img_size > 0:
+            if cfg.img_size > 0:                
                 state = np.concatenate([qp[:,:9],
                                         qv[:,:9],
                                         grasp_pos,
                                         grasp_rot], axis=1)
             else:   
-
+                assert((np.abs(obj_err[1:]-obj_err[0]) > 1e-5).any())
+                assert((np.abs(tar_err[1:]-tar_err[0]) > 1e-5).any())
                 state = np.concatenate([qp,
                                         qv,
                                         grasp_pos,

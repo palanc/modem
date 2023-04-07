@@ -20,7 +20,6 @@ python train.py \
     success_mask_bottom=143 \
     success_thresh=0.5 \
     success_uv=[-52,68]
-
 test
 
 # Train bc policies for real 
@@ -43,4 +42,5 @@ python train.py -m \
     success_mask_bottom=143 \
     success_thresh=0.5 \
     success_uv=[-52,68] \
-    hydra/launcher=slurm &
+    hydra/launcher=slurm
+

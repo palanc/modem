@@ -3,7 +3,6 @@
 <<test
 python train.py \
     task=franka-FrankaBinPickReal_v2d  \
-    suite=franka \
     exp_name=test \
     seed=1 \
     demos=30 \
@@ -14,17 +13,15 @@ python train.py \
     camera_views=[left_cam,right_cam] \
     left_crops=[115,155] \ 
     top_crops=[0,0] \
-    bc_only=true \
-    h5_demos=true
+    bc_only=true 
 test
 
 # Train bc policies for real 
 python train.py -m \
     task=franka-FrankaBinPickReal_v2d  \
-    suite=franka \
-    exp_name=smooth_bc_1000_demos-all-yaw \
+    exp_name=bin_pick_real_bc_100demos \
     seed=1,2,3,4,5,6,7,8,9,10 \
-    demos=1000 \
+    demos=100 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \
@@ -33,5 +30,5 @@ python train.py -m \
     left_crops=[115,155] \
     top_crops=[0,0] \
     bc_only=true \
-    h5_demos=true \
-    hydra/launcher=slurm &
+    hydra/launcher=slurm
+    

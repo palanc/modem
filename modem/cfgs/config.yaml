@@ -52,7 +52,7 @@ wandb_project: modem
 wandb_entity: palanc
 
 # dirs (required: fill in your details)
-logging_dir: /checkpoint/plancaster/outputs/modem
+logging_dir: /checkpoint/plancaster/outputs/robohive_base
 demo_dir: ${logging_dir}
 
 # misc

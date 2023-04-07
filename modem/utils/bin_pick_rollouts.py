@@ -121,7 +121,8 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
 
             time_stamp = time.strftime("%Y%m%d-%H%M%S")
             file_name = output_dir + '/' + output_name + '{}_paths.pickle'.format(time_stamp)
-            pickle.dump(paths, open(file_name, 'wb'))           
+            paths.close()
+            paths.save(trace_name=file_name, verify_length=True, f_res=np.float64)
             successes += 1
 
         print('Success {} ({}/{})'.format(successes/rollouts,successes,rollouts))

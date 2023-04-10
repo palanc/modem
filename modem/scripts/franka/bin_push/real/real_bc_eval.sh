@@ -2,7 +2,6 @@
 
 python train.py \
     task=franka-FrankaBinPushReal_v2d  \
-    suite=franka \
     exp_name=real_bin_push_bc_eval_100demo \
     seed=1 \
     demos=0 \
@@ -17,9 +16,9 @@ python train.py \
     real_robot=true \
     action_repeat=1 \
     min_std=0.05\
-    logging_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    demo_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    bc_model_fp='/mnt/raid5/plancaster/data/robohive_base/franka-FrankaBinPushReal_v2d/bin_push_real_bc_100demos/bc_seed' \
+    logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPushReal_v2d/bin_push_real_bc_100demos/bc_seed' \
     success_mask_left=108 \
     success_mask_right=122 \
     success_mask_top=109 \

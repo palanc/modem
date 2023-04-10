@@ -11,7 +11,8 @@ DESC='Fix grasp pos in existing trace'
 @click.option('-td', '--trace_dir', type=str, help='absolute path to trace to load', required=True)
 def main(trace_dir):
     fps = glob.glob(trace_dir+"/*.pickle")
-    for fp in fps:
+    for f_idx,fp in enumerate(fps):
+        print('Path {} of {}'.format(f_idx, len(fps)))
         paths = Trace.load(fp)
         if 'env_infos' in paths.trace['Trial0']:
             paths.close()

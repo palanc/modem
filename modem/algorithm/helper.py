@@ -497,10 +497,10 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         if cfg.real_robot:
             rewards = torch.zeros((cfg.episode_length,), 
                                     dtype=torch.float32, 
-                                    device=states.device)-1.0            
-            if franka_task == FrankaTask.BinPick
+                                    device=state.device)-1.0            
+            if franka_task == FrankaTask.BinPick:
                 if successful_trial:
-                    rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)                
+                    rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], None)                
             elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush: 
                 rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh) 
             else:
@@ -544,8 +544,8 @@ def get_demos(cfg, env):
             if len(episodes) >= cfg.demos:
                 break
             episodes.append(paths_episodes[i])      
-            if len(episodes) > 0 and len(episodes) % 10 == 0:
-                print('Loaded demo {} of {}, reward {}'.format(len(episodes),cfg.demos, np.sum(episodes[-1].rewards)))
+            if len(episodes) > 0 and len(episodes) % 1 == 0:
+                print('Loaded demo {} of {}, reward {}'.format(len(episodes),cfg.demos, torch.sum(episodes[-1].reward).item()))
     
     assert(len(episodes)==cfg.demos)
     return episodes

@@ -71,7 +71,7 @@ class FrankaWrapper(gym.Wrapper):
                                                 top_crop=self.cfg.success_mask_top, 
                                                 bottom_crop=self.cfg.success_mask_bottom, 
                                                 thresh_val=self.cfg.success_thresh, 
-                                                target_uv=np.array(env.cfg.success_uv),
+                                                target_uv=np.array(self.cfg.success_uv),
                                                 render=False)
 
     @property
@@ -111,17 +111,16 @@ class FrankaWrapper(gym.Wrapper):
                              self.observation_space.shape[3]), dtype=np.uint8)
 
         img_views = []
+        vis_obs_dict = self.env.visual_dict
         for i,camera_name in enumerate(self.camera_names):
 
-            rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-            depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-            vis_obs_dict = self.env.get_visuals(sim=self.env.sim,
-                                                visual_keys=[rgb_key, depth_key])
-            if rgb_key not in vis_obs_dict or depth_key not in vis_obs_dict:
+            if self.cfg.real_robot:
                 rgb_key = 'rgb:'+camera_name+':240x424:2d'
                 depth_key = 'd:'+camera_name+':240x424:2d'
-                vis_obs_dict = self.env.get_visuals(sim=self.env.sim,
-                                                    visual_keys=[rgb_key, depth_key])    
+            else:
+                rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+                depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+            assert(rgb_key in vis_obs_dict and depth_key in vis_obs_dict)  
 
             rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
             rgb_img = rgb_img[:,
@@ -155,7 +154,7 @@ class FrankaWrapper(gym.Wrapper):
                 preset_eef = np.array([0.5,0.3,1.25])
             else:
                 raise NotImplementedError()
-            preset_eef[:3] = 2*(((preset_eef[:3]-self.env.unwrapped.pos_limits['eef_low'][:3])/(self.env.unwrapped.pos_limits['eef_high'][:3]-self.env.unwrapped.pos_limits_low['eef_low'][:3]))-0.5)
+            preset_eef[:3] = 2*(((preset_eef[:3]-self.env.unwrapped.pos_limits['eef_low'][:3])/(np.abs(self.env.unwrapped.pos_limits['eef_high'][:3]-self.env.unwrapped.pos_limits['eef_low'][:3])+1e-8))-0.5)
             preset_step = 0
             while(preset_step < 50):
                 self.step(preset_eef)
@@ -203,7 +202,7 @@ class FrankaWrapper(gym.Wrapper):
 
     def get_trace_dict(self, action):
         aug_action = self.get_base_env_action(action)
-        cur_obs = self.env.obsdict2obsvec(self.env.obs_dict, self.env.obs_keys),
+        t, cur_obs = self.env.obsdict2obsvec(self.env.obs_dict, self.env.obs_keys)
         cur_env_info = self.env.get_env_infos()
         trace_dict = dict(time=self.env.time,
                           observations=cur_obs,
@@ -274,7 +273,7 @@ class FrankaWrapper(gym.Wrapper):
                     grasp_centers = []
                     while(len(grasp_centers) <= 0):
                         grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                                                                                out_dir=None)
+                                                                                out_dir=self.cfg.logging_dir+'/debug')
                         if len(grasp_centers) <= 0:
                             input('Block not detected, enter to continue')
                             print('Taking new block image')
@@ -282,10 +281,8 @@ class FrankaWrapper(gym.Wrapper):
                     
                     real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
 
-                    obs = self.env.reset()
-                    obs, env_info = open_gripper(self.env, obs)
                     self.reset_pi.set_real_obj_pos(real_obj_pos)
-                    self.reset_pi.set_real_tar_pos(np.array([0.0, 0.5, 1.1]))
+                    self.reset_pi.set_real_tar_pos(np.array([0.5, 0.0, 1.1]))
                     self.reset_pi.set_real_yaw(np.random.uniform(low = -3.14, high = 0))
                     self.env.examine_policy_new(policy=self.reset_pi,
                                                 horizon=self.env.spec.max_episode_steps,
@@ -309,12 +306,13 @@ class FrankaWrapper(gym.Wrapper):
         return success, rewards
 
 def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
+    assert(states.shape[1] == 25)
     rewards = torch.zeros(
         (cfg.episode_length,), dtype=torch.float32, device=states.device
     )-1.0
     if cfg.task.startswith('franka-FrankaBinPick'):
         for i in reversed(range(cfg.episode_length)):
-            if states[i+1, -1] > 1.05:
+            if states[i+1, -5] > 1.0:
                 rewards[i] = 0.0
             else:
                 break

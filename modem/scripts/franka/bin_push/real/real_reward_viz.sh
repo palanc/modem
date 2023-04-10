@@ -21,8 +21,8 @@ python reward_viz.py \
     bc_rollout=true \
     bc_q_pol=true \
     seed_steps=5000 \
-    logging_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/modem' \
-    demo_dir='/mnt/nfs_code/robopen_users/plancaster/remodem/' \
+    logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
     eval_freq=5000\
     h5_demos=true \
     success_mask_left=108 \

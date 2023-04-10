@@ -1,7 +1,7 @@
 #!/bin/bash
+
 <<test
 python train.py \
-    suite=franka \
     task=franka-FrankaBinPickReal_v2d  \
     exp_name=real_bin_pick_test \
     discount=0.95 \
@@ -20,15 +20,15 @@ python train.py \
     plan_policy=true \
     bc_rollout=true \
     bc_q_pol=true \
-    logging_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    demo_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    bc_model_fp='/mnt/raid5/plancaster/data/robohive_base/franka-FrankaBinPickReal_v2d/bin_pick_real_bc_100demos/bc_seed' 
+    logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPickReal_v2d/bin_pick_real_bc_100demos/bc_seed'\
     seed_steps=300 \
     eval_episodes=3 
 test
 
+
 python train.py \
-    suite=franka \
     task=franka-FrankaBinPickReal_v2d  \
     exp_name=bin_pick_real \
     discount=0.95 \
@@ -49,8 +49,7 @@ python train.py \
     bc_rollout=true \
     bc_q_pol=true \
     seed_steps=5000 \
-    logging_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    demo_dir='/mnt/raid5/plancaster/data/robohive_base' \
-    bc_model_fp='/mnt/raid5/plancaster/data/robohive_base/franka-FrankaBinPickReal_v2d/bin_pick_real_bc_100demos/bc_seed' \
+    logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPickReal_v2d/bin_pick_real_bc_100demos/bc_seed'\
     eval_freq=5000 
-    

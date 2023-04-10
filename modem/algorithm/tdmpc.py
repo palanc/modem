@@ -24,15 +24,18 @@ class TOLD(nn.Module):
         )
         self._reward = h.mlp(cfg.latent_dim + cfg.action_dim, cfg.mlp_dim, 1)
         self._pi = h.mlp(cfg.latent_dim, cfg.mlp_dim, cfg.action_dim)
-        self._Q1, self._Q2 = h.q(cfg), h.q(cfg)
+        self._Qs = []
+        for i in range(cfg.value_ensemble_size):
+            self._Qs.append(h.q(cfg))
+
         self.apply(h.orthogonal_init)
-        for m in [self._reward, self._Q1, self._Q2]:
+        for m in [self._reward, *self.Qs]:
             m[-1].weight.data.fill_(0)
             m[-1].bias.data.fill_(0)
 
     def track_q_grad(self, enable=True):
         """Utility function. Enables/disables gradient tracking of Q-networks."""
-        for m in [self._Q1, self._Q2]:
+        for m in self._Qs:
             h.set_requires_grad(m, enable)
 
     def h(self, obs, state):
@@ -60,7 +63,7 @@ class TOLD(nn.Module):
     def Q(self, z, a):
         """Predict state-action value (Q)."""
         x = torch.cat([z, a], dim=-1)
-        return self._Q1(x), self._Q2(x)
+        return torch.stack([Q(x) for Q in self._Qs],dim=0)
 
 
 class TDMPC:
@@ -132,10 +135,14 @@ class TDMPC:
             G += discount * reward
             discount *= self.cfg.discount
         if q_pol is None:
-            G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
+            Qs = self.model.Q(z, self.model.pi(z, self.cfg.min_std))
         else:
-            G += discount * torch.min(*self.model.Q(z, q_pol(z, self.cfg.min_std)))
-        return G
+            Qs = self.model.Q(z, q_pol(z, self.cfg.min_std))
+        
+        G += discount * torch.min(Qs, dim=0)
+        std = torch.std(Qs, dim=0)
+
+        return G, std
 
     @torch.no_grad()
     def plan(self, obs, state, mean=None, std=None, eval_mode=False, step=None, t0=True, q_pol=None, gt_rollout_start_state=None):
@@ -210,7 +217,15 @@ class TDMPC:
                     value[i,0] = path['rewards'][-1]
             else:
                 # Compute elite actions
-                value = self.estimate_value(z, actions, horizon, q_pol=q_pol).nan_to_num_(0)
+                value_min, value_std = self.estimate_value(z, 
+                                                           actions, 
+                                                           horizon, 
+                                                           q_pol=q_pol)
+                assert(not value.isnan().any() and not value.isinf().any())
+                assert(not value_std.isnan().any() and not value_std.isinf().any())     
+                value = value_min + self.cfg.value_std_weight*value_std                                                 
+                #.nan_to_num_(0)
+
             elite_idxs = torch.topk(
                 value.squeeze(1), self.cfg.num_elites, dim=0
             ).indices
@@ -297,7 +312,7 @@ class TDMPC:
         pi_loss = 0
         for t, z in enumerate(zs):
             a = self.model.pi(z, self.cfg.min_std)
-            Q = torch.min(*self.model.Q(z, a))
+            Q = torch.min(self.model.Q(z, a), dim=0)
             pi_loss += -Q.mean() * (self.cfg.rho**t)
 
         pi_loss.backward()
@@ -315,7 +330,7 @@ class TDMPC:
         """Compute the TD-target from a reward and the observation at the following time step."""
         next_z = self.model.h(next_obs, next_state)
         td_target = reward + self.cfg.discount * torch.min(
-            *self.model_target.Q(next_z, self.model.pi(next_z, self.cfg.min_std))
+            self.model_target.Q(next_z, self.model.pi(next_z, self.cfg.min_std)),dim=0
         )
         return td_target
 
@@ -380,7 +395,7 @@ class TDMPC:
         for t in range(self.cfg.horizon):
 
             # Predictions
-            Q1, Q2 = self.model.Q(z, action[t])
+            Qs = self.model.Q(z, action[t])
             z, reward_pred = self.model.next(z, action[t])
             with torch.no_grad():
                 next_obs = self.aug(next_obses[t])
@@ -393,8 +408,10 @@ class TDMPC:
             rho = self.cfg.rho**t
             consistency_loss += rho * torch.mean(h.mse(z, next_z), dim=1, keepdim=True)
             reward_loss += rho * h.mse(reward_pred, reward[t])
-            value_loss += rho * (h.mse(Q1, td_target) + h.mse(Q2, td_target))
-            priority_loss += rho * (h.l1(Q1, td_target) + h.l1(Q2, td_target))
+            
+            for q_idx in range(self.cfg.value_ensemble_size):
+                value_loss += rho * h.mse(Qs[q_idx], td_target)
+                priority_loss += rho * h.l1(Qs[q_idx], td_target)
 
         # Optimize model
         total_loss = (

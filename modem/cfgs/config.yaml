@@ -94,6 +94,9 @@ success_mask_bottom: ???
 success_thresh: ???
 success_uv: ???
 
+value_ensemble_size: 2
+value_std_wgt: 0.0
+
 hydra:
     job:
         name: ${exp_name}

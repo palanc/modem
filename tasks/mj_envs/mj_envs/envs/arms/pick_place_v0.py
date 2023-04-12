@@ -124,7 +124,7 @@ class PickPlaceV0(env_base.MujocoEnv):
         obs_dict['t'] = np.array([self.sim.data.time])
         obs_dict['qp'] = sim.data.qpos.copy()
         obs_dict['qv'] = sim.data.qvel.copy()
-        obs_dict['grasp_pos'] = sim.data.site_xpos[self.grasp_sid]
+        obs_dict['grasp_pos'] = sim.data.site_xpos[self.grasp_sid].copy()
         if self.robot.is_hardware:
             obs_dict['object_err'] = self.real_obj_pos-sim.data.site_xpos[self.grasp_sid]
             obs_dict['target_err'] = sim.data.site_xpos[self.target_sid]-sim.data.site_xpos[self.grasp_sid]

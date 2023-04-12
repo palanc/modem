@@ -303,11 +303,16 @@ def get_demos(cfg):
         frames = []
         for fn in data["frames"]:
             if isinstance(fn, list):
-                assert(len(fn) == 2)
-                assert(cfg.camera_view in str(fn[0]) and 'rgb' in str(fn[0]))
-                assert(cfg.camera_view in str(fn[1]) and 'depth' in str(fn[1]))
-                rgb_image = np.array(Image.open(frames_dir/fn[0])).transpose(2,0,1)
-                depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[1])),axis=0)
+                cam_idx = 0
+                while cam_idx < len(fn):
+                    if cfg.camera_view in str(fn[cam_idx]):
+                        break
+                    cam_idx += 2
+                assert(cam_idx < len(fn))
+                assert(cfg.camera_view in str(fn[cam_idx]) and 'rgb' in str(fn[cam_idx]))
+                assert(cfg.camera_view in str(fn[cam_idx+1]) and 'depth' in str(fn[cam_idx+1]))
+                rgb_image = np.array(Image.open(frames_dir/fn[cam_idx])).transpose(2,0,1)
+                depth_image = np.expand_dims(np.array(Image.open(frames_dir/fn[cam_idx+1])),axis=0)
                 frames.append(np.concatenate([rgb_image,depth_image],axis=0))             
             else:
                 img = np.array(Image.open(frames_dir / fn))

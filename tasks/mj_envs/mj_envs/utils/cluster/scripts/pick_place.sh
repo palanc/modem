@@ -23,6 +23,6 @@ python launch_modem_rollouts.py -m \
     mode=evaluation \
     seed=0,100,200,300,400,500,600,700,800,900 \
     num_rollouts=100 \
-    output_dir=/checkpoint/plancaster/outputs/modem/demonstrations/franka-FrankaPickPlaceRandom_v2d \
+    output_dir=/checkpoint/plancaster/outputs/franka_min/demonstrations/franka-FrankaPickPlaceRandom_v2d \
     hydra/launcher=slurm \
     hydra/output=slurm 

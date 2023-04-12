@@ -48,11 +48,11 @@ mlp_dim: 512
 latent_dim: 50
 
 # wandb (required: fill in your details)
-wandb_project: modem
+wandb_project: franka_min
 wandb_entity: palanc
 
 # dirs (required: fill in your details)
-logging_dir: /checkpoint/plancaster/outputs/modem
+logging_dir: /checkpoint/plancaster/outputs/franka_min
 demo_dir: ${logging_dir}
 
 # misc

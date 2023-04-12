@@ -66,7 +66,7 @@
         <mesh name="TH3_z" file="TH3_z.stl" />
         <mesh name="TH2_z" file="TH2_z.stl" />
         <mesh name="TH1_z" file="TH1_z.stl" />
-        <mesh file="../../../robohive.stl" scale="1 1 1"/>
+	<mesh file="../../../scene_sim/meshes/robohive.stl" scale="1 1 1"/>
 
     </asset>
 

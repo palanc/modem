@@ -8,15 +8,17 @@
 ====================================================== -©vk©-->
     <compiler angle="radian" />
     <include file="../furniture_sim/microwave/microwave_asset.xml"/>
-
+    <visual>
+        <headlight diffuse=".9 .9 .9"/>
+    </visual>
     <!--- Microwave -©vk©-->
     <worldbody>
 
         <body pos="-1.5 0 0">
-            <include file="../furniture_sim/microwave/microwave_body.xml"/>
+            <include file="../furniture_sim/microwave/microwave_body0.xml"/>
         </body>
 
-        <body pos="-.75 0 0">
+        <!-- <body pos="-.75 0 0">
             <include file="../furniture_sim/microwave/microwave_body1.xml"/>
         </body>
 
@@ -26,7 +28,7 @@
 
         <body pos=".75 0 0">
             <include file="../furniture_sim/microwave/microwave_body3.xml"/>
-        </body>
+        </body> -->
 
     </worldbody>
 

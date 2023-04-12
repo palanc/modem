@@ -1,12 +1,69 @@
+""" =================================================
+Copyright (C) 2018 Vikash Kumar
+Author  :: Vikash Kumar (vikashplus@gmail.com)
+Source  :: https://github.com/vikashplus/mj_envs
+License :: Under Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+================================================= """
+
 import unittest
 
 import gym
-import mj_envs
 import numpy as np
-
+import pickle
 
 class TestEnvs(unittest.TestCase):
-    def check_envs(self, module_name, env_names, lite=False, seed=1234):
+
+    def check_envs(self, module_name, env_names, lite=False, input_seed=1234):
+        print("\nTesting module:: ", module_name)
+        for env_name in env_names:
+            print("Testing env: ", env_name)
+            self.check_env(env_name, input_seed)
+
+
+    def check_env(self, environment_id, input_seed):
+        # test init
+        env1 = gym.make(environment_id, seed=input_seed)
+        assert env1.get_input_seed() == input_seed
+        # test reset
+        env1.env.reset()
+
+        # step
+        u = 0.01*np.random.uniform(low=0, high=1, size=env1.env.sim.model.nu) # small controls
+        obs1, rwd1, done1, infos1 = env1.env.step(u.copy())
+        assert len(obs1>0)
+        # assert len(rwd1>0)
+        # test dicts
+        assert len(infos1) > 0
+        obs_dict1 = env1.get_obs_dict(env1.env.sim)
+        assert len(obs_dict1) > 0
+        rwd_dict1 = env1.get_reward_dict(obs_dict1)
+        assert len(rwd_dict1) > 0
+        # reset env
+        env1.reset()
+
+        # serialize / deserialize env ------------
+        env2 = pickle.loads(pickle.dumps(env1))
+        # test reset
+        env2.reset()
+        # test seed
+        assert env2.get_input_seed() == input_seed
+        assert env1.get_input_seed() == env2.get_input_seed(), {env1.get_input_seed(), env2.get_input_seed()}
+        # check input output spaces
+        assert env1.action_space == env2.action_space, (env1.action_space, env2.action_space)
+        assert env1.observation_space == env2.observation_space, (env1.observation_space, env2.observation_space)
+        # step
+        obs2, rwd2, done2, infos2 = env2.env.step(u)
+        assert (obs1==obs2).all(), (obs1, obs2)
+        assert (rwd1==rwd2).all(), (rwd1, rwd2)
+        assert (done1==done2), (done1, done2)
+        assert len(infos1)==len(infos2), (infos1, infos2)
+        # reset
+        env2.reset()
+
+        del(env1)
+        del(env2)
+
+    def check_old_envs(self, module_name, env_names, lite=False, seed=1234):
         print("\nTesting module:: ", module_name)
         for env_name in env_names:
             print("Testing env: ", env_name)
@@ -33,66 +90,9 @@ class TestEnvs(unittest.TestCase):
             infos = env.env.get_env_infos()
 
             # test step (everything together)
-            observation, _reward, done, _info = env.env.step(
-                np.zeros(env.env.sim.model.nu)
-            )
-            del env
-
-    # Biomechanics
-    def test_biomechanics(self):
-        env_names = [
-            "FingerReachMotorFixed-v0",
-            "FingerReachMotorRandom-v0",
-            "FingerReachMuscleFixed-v0",
-            "FingerReachMuscleRandom-v0",
-            "FingerPoseMotorFixed-v0",
-            "FingerPoseMotorRandom-v0",
-            "FingerPoseMuscleFixed-v0",
-            "FingerPoseMuscleRandom-v0",
-            "IFTHPoseMuscleRandom-v0",
-            "IFTHKeyTurnFixed-v0",
-            "IFTHKeyTurnRandom-v0",
-            "IFTHPoseMuscleRandom-v0",
-            "HandPoseAMuscleFixed-v0",
-            "IFTHKeyTurnFixed-v0",
-            "IFTHKeyTurnRandom-v0",
-            "HandObjHoldFixed-v0",
-            "HandObjHoldRandom-v0",
-            "HandPenTwirlFixed-v0",
-            "HandPenTwirlRandom-v0",
-            "BaodingFixed-v1",
-            "BaodingFixed4th-v1",
-            "BaodingFixed8th-v1",
-            "HandPoseMuscleRandom-v0",
-        ]
-
-        for k in range(10):
-            env_names += ["HandPose" + str(k) + "MuscleFixed-v0"]
-
-        self.check_envs("Biomechanics", env_names)
-
-    # Arms
-    def test_arms(self):
-        env_names = [
-            "FrankaReachFixed-v0",
-            "FrankaReachRandom-v0",
-            "FrankaPushFixed-v0",
-            "FrankaPushRandom-v0",
-            "FetchReachFixed-v0",
-            "FetchReachRandom-v0",
-        ]
-        self.check_envs("Arms", env_names, lite=False)
-
-    # Hand Manipulation Suite
-    def test_hand_manipulation_suite(self):
-        env_names = [
-            "pen-v0",
-            "door-v0",
-            "hammer-v0",
-            "relocate-v0",
-        ]
-        self.check_envs("Hand Manipulation", env_names, lite=True)
+            observation, _reward, done, _info = env.env.step(np.zeros(env.env.sim.model.nu))
+            del(env)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

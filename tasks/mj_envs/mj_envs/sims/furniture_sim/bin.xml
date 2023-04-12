@@ -1,6 +1,6 @@
 <mujoco model="bin">
 <!-- =================================================
-    Copyright 2019 Vikash Kumar 
+    Copyright 2019 Vikash Kumar
     Model   :: bin (MuJoCoV2.0)
     Author  :: Vikash Kumar (vikashplus@gmail.com), Michael Wu (michael50wu@gmail.com)
     Details :: https://github.com/vikashplus/furniture_sim
@@ -13,6 +13,12 @@
     <worldbody>
         <body>
             <include file="../furniture_sim/bin/bin_body.xml" />
+        </body>
+        <body pos=".5 0 0">
+            <include file="../furniture_sim/bin/busbin1_body.xml" />
+        </body>
+        <body pos="-.5 0 0">
+            <include file="../furniture_sim/bin/busbin2_body.xml" />
         </body>
     </worldbody>
 

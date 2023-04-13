@@ -63,9 +63,11 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
             if cfg.plan_policy:
                 horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
                 mean = rollout_agent.rollout_actions(obs, env.state, horizon)
+                #print('Rollout mean: {}'.format(mean))
                 std = cfg.min_std* torch.ones(horizon, cfg.action_dim, device=agent.device)   
                 action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())   
             else:
+                print('not plan policy')
                 action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
             
             obs, reward, done, info = env.step(action.cpu().numpy())
@@ -170,15 +172,22 @@ def train(cfg: dict):
     if model_fp is not None:
         print('Loading agent '+str(model_fp))
         agent.load(model_fp)        
+        agent.model.eval()
+        agent.model_target.eval()     
+        print(agent.state_dict()['model'].keys())   
 
     bc_agent = TDMPC(cfg)
     bc_model_fp = model_fp
     if bc_model_fp is not None and start_step //cfg.action_repeat >= cfg.seed_steps:
         bc_model_fp, _, _ = load_checkpt_fp(cfg, None, L._model_dir)
     if bc_model_fp is not None:
+        print('BC model fp: {}'.format(bc_model_fp))
         bc_agent.load(bc_model_fp)
+        bc_agent.model.eval()
+        bc_agent.model_target.eval()
 
     # Load past episodes
+    '''
     if cfg.real_robot:
         for i in range(start_step//cfg.episode_length):
             trace_fn = 'rollout'+f'{(i):010d}.pickle'
@@ -198,7 +207,7 @@ def train(cfg: dict):
         #RESET_PI_THRESH = 3
         #reset_pi = HeuristicPolicyReal(env=env.base_env(), 
         #                               seed=cfg.seed)
-
+    '''
     # Load demonstrations
     if cfg.get("demos", 0) > 0:
 
@@ -271,7 +280,7 @@ def train(cfg: dict):
             len(episode) == cfg.episode_length
         ), f"Episode length {len(episode)} != {cfg.episode_length}"
         
-        if cfg.real_robot:
+        if False:#cfg.real_robot:
             print('Checking success')
 
             task_success, new_rewards = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
@@ -357,9 +366,9 @@ def train(cfg: dict):
         train_metrics.update(common_metrics)
         L.log(train_metrics, category="train")
 
-        if cfg.save_model and env_step % cfg.save_freq == 0:# and env_step > 0:
-            L.save_model(agent, env_step)
-            print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
+        #if cfg.save_model and env_step % cfg.save_freq == 0:# and env_step > 0:
+        #    L.save_model(agent, env_step)
+        #    print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
 
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
@@ -367,6 +376,8 @@ def train(cfg: dict):
 
                 assert((cfg.bc_rollout and cfg.bc_q_pol) or (not cfg.bc_rollout and not cfg.bc_q_pol))
                 if cfg.bc_rollout:
+                    print('eval with bc rollouts')
+                    #bc_eval_rew, bc_eval_succ = evaluate(env, bc_agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
                     bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
                     if not cfg.real_robot:
                         eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)

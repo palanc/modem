@@ -72,7 +72,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
 
         if grasp_centers is not None and len(grasp_centers) > 0:
             real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
-            
+            real_yaw = grasp_centers[-1][2]
             if output_dir is not None:
 
                 rec_img = img_masked.copy()
@@ -87,6 +87,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             print('Vision obj pos')
         else:
             real_obj_pos = np.random.uniform(low=[0.368, -0.25, 0.91], high=[0.72, 0.25, 0.91])
+            real_yaw = np.random.uniform(low = -3.14, high = 0)
             print('Random obj pos')            
         
         #obs = env.reset()
@@ -94,7 +95,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
         print('real obj pos {}'.format(real_obj_pos))
         pi.set_real_obj_pos(real_obj_pos)
         pi.set_real_tar_pos(real_tar_pos)
-        pi.set_real_yaw(np.random.uniform(low = -3.14, high = 0))
+        pi.set_real_yaw(real_yaw)
 
         paths = env.examine_policy_new(
             policy=pi,

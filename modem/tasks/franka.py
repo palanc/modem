@@ -269,34 +269,43 @@ class FrankaWrapper(gym.Wrapper):
                 
                 if eval_mode or self.consec_train_fails >= self.RESET_PI_THRESH:
                     assert(latest_img is not None)
-                    print('Executing reset policy ({})'.format('eval' if eval_mode else 'train'))
                     grasp_centers = []
-                    while(len(grasp_centers) <= 0):
-                        grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                                                                                out_dir=self.cfg.logging_dir+'/debug')
-                        if len(grasp_centers) <= 0:
-                            input('Block not detected, enter to continue')
-                            print('Taking new block image')
-                            _, latest_img, _, _, _ = check_grasp_success(env=self.env, obs=None, force_img=True)
-                    
-                    real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
+                    real_obj_pos = np.zeros(3)
+   
+                    reset_success = False                
+                    while(not reset_success):
+                            
+                        while(len(grasp_centers) <= 0):
+                            grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
+                                                                                    out_dir=self.cfg.logging_dir+'/debug')
+                            if len(grasp_centers) <= 0:
+                                input('Block not detected, enter to continue')
+                                print('Taking new block image')
+                                _, latest_img, _, _, _ = check_grasp_success(env=self.env, obs=None, force_img=True)
+                        
+                        real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
+                        real_obj_yaw = grasp_centers[-1][2]
+                        print('Real obj pos {}'.format(real_obj_pos))
 
-                    self.reset_pi.set_real_obj_pos(real_obj_pos)
-                    self.reset_pi.set_real_tar_pos(np.array([0.5, 0.0, 1.1]))
-                    self.reset_pi.set_real_yaw(np.random.uniform(low = -3.14, high = 0))
-                    self.env.examine_policy_new(policy=self.reset_pi,
-                                                horizon=self.env.spec.max_episode_steps,
-                                                num_episodes=1,
-                                                frame_size=(640,480),
-                                                mode='evaluation',
-                                                output_dir=None,
-                                                filename=None,
-                                                camera_name=None,
-                                                render='none')  
-                    check_grasp_success(self.env, obs=None, just_drop=True)
-
+                        print('Executing reset policy ({})'.format('eval' if eval_mode else 'train'))
+                        self.reset_pi.set_real_obj_pos(real_obj_pos)
+                        self.reset_pi.set_real_tar_pos(np.array([0.5, 0.0, 1.1]))
+                        self.reset_pi.set_real_yaw(real_obj_yaw)
+                        self.env.examine_policy_new(policy=self.reset_pi,
+                                                    horizon=self.env.spec.max_episode_steps,
+                                                    num_episodes=1,
+                                                    frame_size=(640,480),
+                                                    mode='evaluation',
+                                                    output_dir=None,
+                                                    filename=None,
+                                                    camera_name=None,
+                                                    render='none')  
+                        _, latest_img, reset_success, _, _ = check_grasp_success(self.env, obs=None, force_img=True)
+                        grasp_centers = []
+                    print('Object has been reset')
                     if not eval_mode:
                         self.consec_train_fails = 0
+
         elif self.cfg.task.startswith('franka-FrankaPlanarPush') or self.cfg.task.startswith('franka-FrankaBinPush'):
             rewards = recompute_real_rwd(self.cfg, states, obs, self.col_thresh)
             success = torch.sum(rewards).item() >= -1*self.cfg.episode_length+4.999

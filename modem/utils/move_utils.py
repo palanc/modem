@@ -4,10 +4,12 @@ import cv2
 import numpy as np
 import random
 import time
+from sklearn.decomposition import PCA
 
 MAX_GRIPPER_OPEN = 0.0002
 MIN_GRIPPER_CLOSED = 0.8228
 DROP_ZONE = np.array([0.53, 0.0, 1.1])
+# DROP_ZONE = np.array([0.575, 0.0, 1.1]) - better yaw setting
 DROP_ZONE_PERTURB = np.array([0.025, 0.025,0.0])
 OUT_OF_WAY = np.array([0.3438, -0.9361,  0.0876, -2.8211,  0.0749,  0.5144, -1.57])
 
@@ -27,6 +29,11 @@ DIFF_THRESH = 0.15
 
 OBJ_POS_LOW = [0.368, -0.25, 0.91] #[-0.35,0.25,0.91]
 OBJ_POS_HIGH = [0.72, 0.25, 0.91] #[0.35,0.65,0.91]
+
+def get_drop_zone_limits():
+    low = DROP_ZONE - DROP_ZONE_PERTURB
+    high = DROP_ZONE + DROP_ZONE_PERTURB
+    return low, high
 
 def is_moving(prev, cur, tol):
     return np.linalg.norm(cur-prev) > tol
@@ -237,8 +244,8 @@ def update_grasps(img, out_dir=None):
 
     bin_mask[MASK_START_Y:MASK_END_Y, MASK_START_X:MASK_END_X, :] = 255
     img_masked = cv2.bitwise_and(img, bin_mask)
-    #img_masked_fn = os.path.join(out_dir, out_name+'_masked.png')
-    #cv2.imwrite(img_masked_fn, img_masked)
+    img_masked_fn = os.path.join(out_dir, 'img_masked.png')
+    cv2.imwrite(img_masked_fn, img_masked)
 
     gray_img = cv2.cvtColor(img_masked, cv2.COLOR_BGR2GRAY)
     binary_img = cv2.adaptiveThreshold(gray_img, 
@@ -273,12 +280,45 @@ def update_grasps(img, out_dir=None):
     #cv2.imwrite(rec_img_fn, img_masked)
 
     grasp_centers = []
-    for x,y,w,h in filtered_boxes:
+    pca = PCA(n_components=1)
+    for i, (x,y,w,h) in enumerate(filtered_boxes):
 
         grasp_x = X_SCALE * (PIX_FROM_TOP - (y+(h/2.0))) + DIST_FROM_BASE
         grasp_y = Y_SCALE * (PIX_FROM_LEFT - (x+(w/2.0))) + DIST_FROM_CENTER
 
+        # Compute yaw
+        _, yaw_thresh = cv2.threshold(gray_img[y:y+h, x:x+w],
+                                      min(int(np.mean(gray_img[y:y+h, x:x+w])),60),
+                                      255, 
+                                      cv2.THRESH_BINARY)
+        pca.fit(np.transpose(np.nonzero(yaw_thresh > 128)))
+        yaw_img = img.copy()
+        yaw_img[y:y+h, x:x+w,:] = yaw_thresh[:,:,np.newaxis]
+        yaw_img = cv2.line(yaw_img, 
+                           (int(x+w/2.0), int(y+h/2.0)), 
+                           (int(x+w/2.0+25*pca.components_[0][1]),int(y+h/2.0+25*pca.components_[0][0])),
+                           (255,0,0),
+                           2)
+        yaw_img_fn = os.path.join(out_dir,'yaw_thresh{}.png'.format(i))
+        cv2.imwrite(yaw_img_fn, yaw_img)
+
+        yaw = np.arctan2(pca.components_[0][0], pca.components_[0][1]) + np.pi/4.0
+        while yaw > 0:
+            yaw -= np.pi
+        while yaw < -np.pi:
+            yaw += np.pi
+        print('Predicted yaw {}'.format(yaw))
+
         if (grasp_x >= OBJ_POS_LOW[0] and grasp_x <= OBJ_POS_HIGH[0] and
             grasp_y >= OBJ_POS_LOW[1] and grasp_y <= OBJ_POS_HIGH[1]):
-            grasp_centers.append((grasp_x,grasp_y))
+            grasp_centers.append((grasp_x,grasp_y, yaw))
     return grasp_centers, filtered_boxes, img_masked
+
+def test_update_grasps():
+    # Load image
+    IMG_DIR = '/mnt/nfs_code/robopen_users/plancaster/robohive_base/modem/modem/utils/test/example_top_cam'
+    img = cv2.imread(IMG_DIR+'/img_masked04.png')
+    update_grasps(img, IMG_DIR)
+
+if __name__ == '__main__':
+    test_update_grasps()

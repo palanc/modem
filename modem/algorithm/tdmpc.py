@@ -162,6 +162,7 @@ class TDMPC:
         horizon = int(
             min(self.cfg.horizon, h.linear_schedule(self.cfg.horizon_schedule, step))
         )
+
         num_pi_trajs = int(self.cfg.mixture_coef * self.cfg.num_samples)
         if num_pi_trajs > 0:
             pi_actions = torch.empty(
@@ -242,6 +243,7 @@ class TDMPC:
         a = mean
         if not eval_mode:
             a += std * torch.randn(self.cfg.action_dim, device=std.device)
+        #print('Chosen: {}'.format(a))
         return a.clamp_(-1, 1)
 
     def eval_batch(self, buffer):

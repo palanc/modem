@@ -34,12 +34,12 @@ python train.py \
     discount=0.95 \
     train_steps=100000 \
     seed=1 \
-    demos=100 \
+    demos=0 \
     img_size=224 \
     lr=3e-4 \
     batch_size=64 \
     episode_length=100 \
-    save_freq=1000 \
+    save_freq=5000 \
     camera_views=[left_cam,right_cam] \
     left_crops=[115,155] \
     top_crops=[0,0] \

@@ -2,8 +2,8 @@
 
 <<test
 python train.py \
-    task=franka-FrankaBinPick  \
-    exp_name=test_value_ensemble \
+    task=franka-FrankaBinPush  \
+    exp_name=test_value_ensemble_bin_push \
     discount=0.95 \
     train_steps=200000 \
     seed=1 \
@@ -11,8 +11,8 @@ python train.py \
     img_size=0 \
     lr=1e-3 \
     batch_size=512 \
-    episode_length=100 \
-    camera_views=[left_cam,right_cam] \
+    episode_length=50 \
+    camera_views=[top_cam] \
     action_repeat=1 \
     seed_steps=300 \
     eval_episodes=3 \
@@ -20,7 +20,6 @@ python train.py \
     bc_rollout=true \
     bc_q_pol=true \
     eval_freq=900 \
-    episode_length=100 \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     value_ensemble_size=5 \
@@ -28,8 +27,8 @@ python train.py \
 test
 
 python train.py -m \
-    task=franka-FrankaBinPick  \
-    exp_name=bin_pick_state_val_ens_pos_100 \
+    task=franka-FrankaBinPush  \
+    exp_name=bin_push_state_val_ens_neg_100 \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \
@@ -37,8 +36,8 @@ python train.py -m \
     img_size=0 \
     lr=1e-3 \
     batch_size=512 \
-    episode_length=100 \
-    camera_views=[left_cam,right_cam] \
+    episode_length=50 \
+    camera_views=[top_cam] \
     action_repeat=1 \
     plan_policy=true \
     bc_rollout=true \
@@ -46,7 +45,8 @@ python train.py -m \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     value_ensemble_size=5 \
-    value_std_wgt=100.0 \
+    value_std_wgt=-100.0 \
     eval_freq=2500 \
     save_freq=2500 \
     hydra/launcher=slurm
+

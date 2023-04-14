@@ -27,9 +27,10 @@ class TOLD(nn.Module):
         self._Qs = []
         for i in range(cfg.value_ensemble_size):
             self._Qs.append(h.q(cfg))
+        self._Qs = nn.ModuleList(self._Qs)
 
         self.apply(h.orthogonal_init)
-        for m in [self._reward, *self.Qs]:
+        for m in [self._reward, *self._Qs]:
             m[-1].weight.data.fill_(0)
             m[-1].bias.data.fill_(0)
 
@@ -139,7 +140,7 @@ class TDMPC:
         else:
             Qs = self.model.Q(z, q_pol(z, self.cfg.min_std))
         
-        G += discount * torch.min(Qs, dim=0)
+        G += discount * torch.min(Qs, dim=0)[0]
         std = torch.std(Qs, dim=0)
 
         return G, std
@@ -221,9 +222,9 @@ class TDMPC:
                                                            actions, 
                                                            horizon, 
                                                            q_pol=q_pol)
-                assert(not value.isnan().any() and not value.isinf().any())
+                assert(not value_min.isnan().any() and not value_min.isinf().any())
                 assert(not value_std.isnan().any() and not value_std.isinf().any())     
-                value = value_min + self.cfg.value_std_weight*value_std                                                 
+                value = value_min + self.cfg.value_std_wgt*value_std                                                 
                 #.nan_to_num_(0)
 
             elite_idxs = torch.topk(
@@ -312,7 +313,7 @@ class TDMPC:
         pi_loss = 0
         for t, z in enumerate(zs):
             a = self.model.pi(z, self.cfg.min_std)
-            Q = torch.min(self.model.Q(z, a), dim=0)
+            Q = torch.min(self.model.Q(z, a), dim=0)[0]
             pi_loss += -Q.mean() * (self.cfg.rho**t)
 
         pi_loss.backward()
@@ -331,7 +332,7 @@ class TDMPC:
         next_z = self.model.h(next_obs, next_state)
         td_target = reward + self.cfg.discount * torch.min(
             self.model_target.Q(next_z, self.model.pi(next_z, self.cfg.min_std)),dim=0
-        )
+        )[0]
         return td_target
 
     def update(self, replay_buffer, step=int(1e6), demo_buffer=None):

@@ -62,7 +62,7 @@ class FrankaWrapper(gym.Wrapper):
             if cfg.task.startswith('franka-FrankaBinPick'):
 
                 self.consec_train_fails = 0
-                self.RESET_PI_THRESH = 3
+                self.RESET_PI_THRESH = 1
                 self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed)
             elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
                 self.col_thresh = ColorThreshold(cam_name=self.camera_names[0], 

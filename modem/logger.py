@@ -10,6 +10,7 @@ import pandas as pd
 from termcolor import colored
 from omegaconf import OmegaConf
 import matplotlib.pyplot as plt
+import torch
 
 CONSOLE_FORMAT = [
     ("episode", "E", "int"),
@@ -188,10 +189,12 @@ class TrajectoryPlotter:
             axs[plot_row, plot_col].set_ylim(bottom=self.act_limits['low'][i],top=self.act_limits['high'][i])
             for j in range(len(mppi_actions)):
                 #axs[plot_row, plot_col].plot(t, mppi_actions[j][:,i])
-                axs[plot_row, plot_col].plot(t, policy_actions[j][:,i], color=colors[j])
+                pol_act = (0.5*policy_actions[j][:,i]+0.5)*(self.act_limits['high'][i]-self.act_limits['low'][i])+self.act_limits['low'][i]
+                mppi_act = (0.5*mppi_actions[j][:,i]+0.5)*(self.act_limits['high'][i]-self.act_limits['low'][i])+self.act_limits['low'][i]
+                axs[plot_row, plot_col].plot(t, pol_act, color=colors[j])
                 axs[plot_row, plot_col].fill_between(t, 
-                                                     policy_actions[j][:,i]+ np.abs(policy_actions[j][:,i]-mppi_actions[j][:,i]),
-                                                     policy_actions[j][:,i]- np.abs(policy_actions[j][:,i]-mppi_actions[j][:,i]),
+                                                     pol_act + np.abs(pol_act-mppi_act),
+                                                     pol_act - np.abs(pol_act-mppi_act),
                                                      color=(*colors[j],0.3))                
             plot_col += 1
             if plot_col >= self.cols:
@@ -285,7 +288,10 @@ class Logger(object):
     def save_model(self, agent, identifier):
         if self._save_model:
             fp = self._model_dir / f"{str(identifier)}.pt"
-            agent.save(fp)
+            
+            #agent.save(fp)
+            torch.save(agent, fp)
+
             if self._wandb:
                 artifact = self._wandb.Artifact(
                     self._group + "-" + str(self._seed) + "-" + str(identifier),

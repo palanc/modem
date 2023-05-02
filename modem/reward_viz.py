@@ -11,6 +11,7 @@ import capnp
 import a0
 import numpy as np
 import cv2
+import gym
 from env import make_env
 import robohive
 from modem.utils.color_threshold import ColorThreshold
@@ -46,13 +47,19 @@ def reward_viz(cfg: dict):
 
     cfg = parse_cfg(cfg)
     cfg.real_robot = False
-    env = make_env(cfg)
-    camera_name = env.camera_names[0]
-    left_crop = env.cfg.left_crops[0]
-    top_crop = env.cfg.top_crops[0]
+    
+    #env = make_env(cfg)
+    
+    env_id = cfg.task.split("-", 1)[-1] + "-v0"
+    reward_mode = 'dense' if cfg.dense_reward else 'sparse'
+    env = gym.make(env_id, **{'reward_mode': reward_mode, 'is_hardware': cfg.real_robot})
+
+    camera_name = cfg.get("camera_views", ["view_1"])[0]
+    left_crop = cfg.left_crops[0]
+    top_crop = cfg.top_crops[0]
     topic_name = None
     img_size = 224
-    for name, device in env.unwrapped.robot.robot_config.items():
+    for name, device in env.robot.robot_config.items():
         if name != camera_name:
             continue
         topic_name = device['interface']['rgb_topic']
@@ -61,13 +68,13 @@ def reward_viz(cfg: dict):
     print('topic name {}'.format(topic_name))
     sub = a0.Subscriber(topic_name, a0.INIT_MOST_RECENT, a0.ITER_NEXT, onmsg)
     #print('left {} right {} top {} bottpm {}'.format(env.success_mask['left'],env.success_mask['right'],env.success_mask['top'],env.success_mask['bottom']))
-    col_thresh = ColorThreshold(cam_name=env.camera_names[0], 
-                                left_crop=env.cfg.success_mask_left, 
-                                right_crop=env.cfg.success_mask_right, 
-                                top_crop=env.cfg.success_mask_top, 
-                                bottom_crop=env.cfg.success_mask_bottom, 
-                                thresh_val=env.cfg.success_thresh, 
-                                target_uv=np.array(env.cfg.success_uv),
+    col_thresh = ColorThreshold(cam_name=camera_name, 
+                                left_crop=cfg.success_mask_left, 
+                                right_crop=cfg.success_mask_right, 
+                                top_crop=cfg.success_mask_top, 
+                                bottom_crop=cfg.success_mask_bottom, 
+                                thresh_val=cfg.success_thresh, 
+                                target_uv=np.array(cfg.success_uv),
                                 render=True)
     max_angle = 0
     min_angle = np.inf

@@ -86,6 +86,167 @@ def open_gripper(env, obs):
         obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
     return obs, env_info
 
+def move_to(action, env):
+
+    last_qp = None
+    obs_dict = None
+    while last_qp is None or np.linalg.norm(obs_dict['qp'][0,0,:env.sim.model.nu]-last_qp) > 0.01:
+        move_action =  2*(((action - env.pos_limits['eef_low']) / (np.abs(env.pos_limits['eef_high'] - env.pos_limits['eef_low'])+1e-8)) - 0.5)
+        
+        if obs_dict is not None:
+            last_qp = obs_dict['qp'][0,0,:env.sim.model.nu].copy()
+
+        obs, _, done, _ = env.unwrapped.step(move_action, update_exteroception=True)
+        obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1))) 
+
+def check_reorient_success(env, obs, out_dir='/tmp'):
+    jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
+    jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]    
+    #OUT_OF_WAY_HAND = np.array([0.0,1.5,0.0,0.0,
+    #                            0.0,1.5,0.0,
+    #                            0.0,1.5,0.0])
+    OUT_OF_WAY_HAND = np.array([0.0,-0.75,0.0,-0.2,
+                                0.0,-0.75,-0.2,
+                                0.0,-0.75,-0.2])
+    KNOCK_HAND = np.array([0.0,1.5,0.0,-0.2,
+                                0.75,1.5,-0.2,
+                                -0.75,1.5,-0.2])
+    DRAG_HAND = np.array([0.57,1.5,0.2,0.5, # Thumb
+                            0.0,1.5,0.0,     # Middle
+                            -0.0,1.5,0.2])    # Pinky
+
+    if obs is None:
+        obs = env.get_obs(update_exteroception=True)    
+    obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+    env_info = env.get_env_infos()
+
+    # Get top cam key
+    top_rgb_cam_key = None
+    top_d_cam_key = None
+    for key in env_info['visual_dict'].keys():
+        if 'top' in key :
+            if key[:4] == 'rgb:':
+                top_rgb_cam_key = key
+            elif key[:2] == 'd:':
+                top_d_cam_key = key        
+
+    assert(top_rgb_cam_key is not None and top_d_cam_key is not None)
+
+    out_of_way_jnts = np.concatenate([OUT_OF_WAY, OUT_OF_WAY_HAND])
+    out_of_way_jnts[5] = 1.57
+    out_of_way_jnts[6] = -3*np.pi/4
+
+    reorient_success = None
+    knocked_over = False
+    while not knocked_over:
+
+        # Check for success
+        obs, env_info = move_joint_config(env, out_of_way_jnts) 
+        # Wait for stabilize
+        time.sleep(3)
+    
+        obs, env_info = move_joint_config(env, out_of_way_jnts)       
+        
+        success_img = np.array(np.clip(env_info['visual_dict'][top_d_cam_key],0,255), dtype=np.uint8).reshape((240,424,1))
+        bin_mask = np.zeros(success_img.shape, dtype=np.uint8)
+        bin_mask[MASK_START_Y:MASK_END_Y, MASK_START_X:MASK_END_X, :] = 255
+        success_img = cv2.bitwise_and(success_img, bin_mask)
+
+        top_pixels = np.logical_and(success_img>0, success_img <= 45)
+        thresh_val = top_pixels.sum()
+        knocked_over = thresh_val < 250
+        #from matplotlib import pyplot as plt
+        #weights = np.ones_like(success_img)
+        #weights[success_img == 0] = 0
+        #plt.clf()
+        #plt.xlim([0,100])
+        #_ = plt.hist(success_img.flatten(), bins=255, weights=weights.flatten())
+        #plt.savefig(out_dir+'/hist.png')
+
+        y_top, x_top = np.where(top_pixels)
+        y_top = np.mean(y_top)
+        x_top = np.mean(x_top)
+        if not knocked_over:
+            success_img[(int(y_top)-5):(int(y_top)+5), (int(x_top)-5):(int(x_top)+5)] = 255
+        success_img_fn = os.path.join(out_dir,'success_img.png')    
+        cv2.imwrite(success_img_fn, success_img)
+
+        if reorient_success is None:
+            reorient_success = not knocked_over
+            print('Reorient success {}'.format(reorient_success))
+        
+        obs, env_info = move_joint_config(env, np.concatenate([OUT_OF_WAY, OUT_OF_WAY_HAND])) 
+
+        if knocked_over:
+            break
+
+        knock_x = X_SCALE * (PIX_FROM_TOP - (y_top)) + DIST_FROM_BASE
+        knock_y = Y_SCALE * (PIX_FROM_LEFT - (x_top)) + DIST_FROM_CENTER               
+        knock_dir = np.array([0.55-knock_x, 0.0-knock_y])
+        knock_dir = knock_dir / np.linalg.norm(knock_dir)
+        knock_yaw = np.arctan2(knock_dir[0], knock_dir[1])
+        preknock_action = np.concatenate([[knock_x, knock_y, 1.125, 3.14, 0.0, knock_yaw],
+                                          OUT_OF_WAY_HAND])
+        move_to(preknock_action, env)
+
+        preknock_action = np.concatenate([[knock_x, knock_y, 1.125, 3.14, 0.0, knock_yaw],
+                                           KNOCK_HAND])
+        
+        move_to(preknock_action, env)        
+
+        knock_x = knock_x + 0.15*knock_dir[0]
+        knock_y = knock_y + 0.15*knock_dir[1]
+        knock_action = np.concatenate([[knock_x, knock_y, 1.125, 3.14, 0.0, knock_yaw],
+                                           KNOCK_HAND])
+
+        move_to(knock_action, env)       
+
+    # Move knocked over bottle to middle
+    while True:
+
+        obs, env_info = move_joint_config(env, out_of_way_jnts) 
+        # Wait for stabilize
+        time.sleep(3)
+        obs, env_info = move_joint_config(env, out_of_way_jnts)   
+        reset_img = env_info['visual_dict'][top_rgb_cam_key]            
+        break
+        grasp_centers, filtered_boxes, img_masked = update_grasps(img=reset_img,
+                                                                  out_dir=out_dir+'/debug',
+                                                                  min_pixels=400,
+                                                                  luv_thresh=True,
+                                                                  limit_yaw=False)
+
+        grasp_x = grasp_centers[0]
+        grasp_y = grasp_centers[1]
+        assert(False,"UPDATE YAW")
+        grasp_yaw = grasp_centers[2]+np.pi/4
+
+        drag_dir = np.array([0.55-grasp_x, 0.0-grasp_y])
+        if np.linalg.norm(drag_dir) < 0.025:
+            break
+
+        predrag_action = np.concatenate([[grasp_x, grasp_y, 0.875, 3.14, 0.0, grasp_yaw],
+                                           OUT_OF_WAY_HAND])
+        
+        move_to(predrag_action, env)        
+
+        predrag_action = np.concatenate([[grasp_x, grasp_y, 0.875, 3.14, 0.0, grasp_yaw],
+                                           DRAG_HAND])
+        
+        move_to(predrag_action, env)       
+        grasp_yaw = np.random.uniform(0.0, np.pi)
+        drag_action = np.concatenate([[0.55, 0.0, 0.925, 3.14, 0.0, grasp_yaw],
+                                           DRAG_HAND])
+        
+        move_to(drag_action, env)       
+
+        drag_action = np.concatenate([[0.55, 0.0, 0.925, 3.14, 0.0, grasp_yaw],
+                                           OUT_OF_WAY_HAND])
+        
+        move_to(drag_action, env)       
+
+    return reorient_success, reset_img
+
 def check_grasp_success(env, obs, force_img=False, just_drop=False):
     jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
     jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]    
@@ -237,7 +398,7 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
 
     return mean_diff, latest_img, mean_diff > DIFF_THRESH, pre_drop_img, post_drop_img
 
-def update_grasps(img, out_dir=None):
+def update_grasps(img, out_dir=None, min_pixels=9, luv_thresh=False, limit_yaw=True):
     if out_dir is not None and not os.path.isdir(out_dir):
         os.mkdir(out_dir)
     bin_mask = np.zeros(img.shape, dtype=np.uint8)
@@ -245,15 +406,23 @@ def update_grasps(img, out_dir=None):
     bin_mask[MASK_START_Y:MASK_END_Y, MASK_START_X:MASK_END_X, :] = 255
     img_masked = cv2.bitwise_and(img, bin_mask)
     img_masked_fn = os.path.join(out_dir, 'img_masked.png')
-    cv2.imwrite(img_masked_fn, img_masked)
-
     gray_img = cv2.cvtColor(img_masked, cv2.COLOR_BGR2GRAY)
-    binary_img = cv2.adaptiveThreshold(gray_img, 
-                                    255, 
-                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                    cv2.THRESH_BINARY_INV,
-                                    15,
-                                    15)
+
+    if luv_thresh:
+        luv_img = cv2.cvtColor(np.array(img_masked).astype('float32')/255, cv2.COLOR_RGB2Luv)
+        from matplotlib import pyplot as plt
+        plt.hist(luv_img[:,:,0].flatten(),bins=255,range=(1,luv_img[:,:,0].max()))
+        plt.savefig(out_dir+'/luv_img_hist.png')
+        binary_img = np.zeros_like(gray_img)
+        binary_img[luv_img[:,:,0] > 7] = 255
+
+    else:
+        binary_img = cv2.adaptiveThreshold(gray_img, 
+                                        255, 
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                        cv2.THRESH_BINARY_INV,
+                                        15,
+                                        15)
     _, _, boxes, _ = cv2.connectedComponentsWithStats(binary_img)
 
     # first box is background
@@ -261,11 +430,16 @@ def update_grasps(img, out_dir=None):
     filtered_boxes = []
     rec_img = img_masked.copy()
     for x,y,w,h,pixels in boxes:
-        if pixels > 15 and h > 4 and w > 4:#pixels < 1000 and h < 40 and w < 40 and h > 4 and w > 4:
+        #if pixels > 15 and h > 4 and w > 4:
+        if pixels > min_pixels and h > 3 and w > 3:
+            print(pixels)
             filtered_boxes.append((x,y,w,h))
             cv2.rectangle(rec_img, (x,y), (x+w, y+h), (255,0,0), 1)
 
     if out_dir is not None:
+        bin_img_fn = os.path.join(out_dir, 'binary_thresh.png')
+        cv2.imwrite(bin_img_fn, binary_img)
+
         rec_img_fn = os.path.join(out_dir,'masked_all_recs.png')
         cv2.imwrite(rec_img_fn, cv2.cvtColor(rec_img, cv2.COLOR_RGB2BGR))
     
@@ -287,10 +461,13 @@ def update_grasps(img, out_dir=None):
         grasp_y = Y_SCALE * (PIX_FROM_LEFT - (x+(w/2.0))) + DIST_FROM_CENTER
 
         # Compute yaw
-        _, yaw_thresh = cv2.threshold(gray_img[y:y+h, x:x+w],
-                                      min(int(np.mean(gray_img[y:y+h, x:x+w])),60),
-                                      255, 
-                                      cv2.THRESH_BINARY)
+        if luv_thresh:
+            yaw_thresh = binary_img[y:y+h, x:x+w]
+        else:
+            _, yaw_thresh = cv2.threshold(gray_img[y:y+h, x:x+w],
+                                        min(int(np.mean(gray_img[y:y+h, x:x+w])),60),
+                                        255, 
+                                        cv2.THRESH_BINARY)
         pca.fit(np.transpose(np.nonzero(yaw_thresh > 128)))
         yaw_img = img.copy()
         yaw_img[y:y+h, x:x+w,:] = yaw_thresh[:,:,np.newaxis]
@@ -303,10 +480,11 @@ def update_grasps(img, out_dir=None):
         cv2.imwrite(yaw_img_fn, yaw_img)
 
         yaw = np.arctan2(pca.components_[0][0], pca.components_[0][1]) + np.pi/4.0
-        while yaw > 0:
-            yaw -= np.pi
-        while yaw < -np.pi:
-            yaw += np.pi
+        if limit_yaw:
+            while yaw > 0:
+                yaw -= np.pi
+            while yaw < -np.pi:
+                yaw += np.pi
         print('Predicted yaw {}'.format(yaw))
 
         if (grasp_x >= OBJ_POS_LOW[0] and grasp_x <= OBJ_POS_HIGH[0] and

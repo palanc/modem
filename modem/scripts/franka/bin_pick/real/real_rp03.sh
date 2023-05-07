@@ -29,10 +29,10 @@ test
 
 python train.py \
     task=franka-FrankaBinPickRealRP03_v2d  \
-    exp_name=bin_pick_rp03_real \
+    exp_name=bin_pick_rp03_real2 \
     discount=0.95 \
     train_steps=100000 \
-    seed=1 \
+    seed=4 \
     demos=100 \
     img_size=224 \
     lr=3e-4 \
@@ -50,5 +50,5 @@ python train.py \
     seed_steps=5000 \
     logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
     demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
-    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPickRealRP03_v2d/bin_pick_real_bc_100demos_rp03/bc_seed' \
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPickRealRP03_v2d/bin_pick_real_bc_100demos_rp03/bc_seed1.pt' \
     eval_freq=5000  

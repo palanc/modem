@@ -155,7 +155,7 @@ def train(cfg: dict):
     work_dir = Path(cfg.logging_dir) / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
 
-    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}/{cfg.exp_name}" 
+    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}/{cfg.exp_name}/{str(cfg.seed)}" 
     if (not os.path.isdir(episode_dir)):
         os.makedirs(episode_dir)
 
@@ -169,9 +169,15 @@ def train(cfg: dict):
     assert(start_step == 0 or bc_start_step is None)
     if model_fp is not None:
         print('Loading agent '+str(model_fp))
-        agent.load(model_fp)        
+        agent_data = torch.load(model_fp)
+        if isinstance(agent_data, dict):
+            agent.load(agent_data)
+        else:
+            agent = agent_data    
+            agent.cfg = cfg  
         agent.model.eval()
         agent.model_target.eval()      
+
 
     bc_agent = TDMPC(cfg)
     bc_model_fp = model_fp
@@ -179,16 +185,22 @@ def train(cfg: dict):
         bc_model_fp, _, _ = load_checkpt_fp(cfg, None, L._model_dir)
     if bc_model_fp is not None:
         print('BC model fp: {}'.format(bc_model_fp))
-        bc_agent.load(bc_model_fp)
+        bc_agent_data = torch.load(bc_model_fp)
+        if isinstance(bc_agent_data, dict):
+            bc_agent.load(bc_agent_data)
+        else:
+            bc_agent = bc_agent_data
+            bc_agent.cfg = cfg
         bc_agent.model.eval()
         bc_agent.model_target.eval()
 
     # Load past episodes
+
     if cfg.real_robot:
         for i in range(start_step//cfg.episode_length):
             trace_fn = 'rollout'+f'{(i):010d}.pickle'
             trace_path = episode_dir+'/'+trace_fn   
-
+            assert(os.path.isfile(trace_path) )
             paths = Trace.load(trace_path)
             paths_episodes = trace2episodes(cfg=cfg,
                                             env=env,

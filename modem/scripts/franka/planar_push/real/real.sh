@@ -39,7 +39,7 @@ python train.py \
     exp_name=real_planar_push_100demo \
     discount=0.95 \
     train_steps=100000 \
-    seed=6 \
+    seed=3 \
     demos=100 \
     img_size=224 \
     lr=3e-4 \
@@ -57,7 +57,7 @@ python train.py \
     seed_steps=5000 \
     logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
     demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
-    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaPlanarPushReal_v2d/planar_push_real_bc_100demos/bc_seed' \
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaPlanarPushReal_v2d/planar_push_real_bc_100demos/bc_seed6.pt' \
     eval_freq=5000\
     success_mask_left=50 \
     success_mask_right=140 \

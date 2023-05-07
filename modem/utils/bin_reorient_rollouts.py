@@ -8,7 +8,7 @@ License :: Under Apache License, Version 2.0 (the "License"); you may not use th
 import gym
 from robohive.envs.arms.bin_reorient_v0 import BinReorientPolicy
 #from move_utils import update_grasps, check_grasp_success, open_gripper
-from move_utils import check_reorient_success, update_grasps
+from move_utils import check_reorient_success, update_grasps, graspcenter2pose
 from PIL import Image
 from pathlib import Path
 import click
@@ -77,13 +77,9 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
                                                                 min_pixels=400,
                                                                 luv_thresh=True,
                                                                 limit_yaw=False)
-        
-        real_obj_pos = np.array([grasp_centers[-1][0],
-                                grasp_centers[-1][1]+0.055,
-                                0.875])
+        real_obj_pos, real_yaw = graspcenter2pose(grasp_centers[-1], xy_offset=[-0.145,0.065])
         pi.set_real_obj_pos(real_obj_pos)
-        #pi.set_real_yaw(grasp_centers[-1][2]+np.pi/4)
-        pi.set_real_yaw(grasp_centers[-1][2]-np.pi)
+        pi.set_real_yaw(real_yaw)
         paths = env.examine_policy_new(
             policy=pi,
             horizon=env.spec.max_episode_steps,
@@ -94,7 +90,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             filename=output_name,
             camera_name=camera_name,
             render=render)   
-        
+        print('Passed yaw {}'.format(real_yaw))
         reorient_success, reset_img = check_reorient_success(env, obs)
 
         if reorient_success:

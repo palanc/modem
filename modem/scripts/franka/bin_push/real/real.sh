@@ -39,7 +39,7 @@ python train.py \
     exp_name=real_bin_push_100_demos \
     discount=0.95 \
     train_steps=100000 \
-    seed=2 \
+    seed=1 \
     demos=100 \
     img_size=224 \
     lr=3e-4 \
@@ -66,4 +66,3 @@ python train.py \
     success_thresh=0.5 \
     success_uv=[-52,68] 
 
-com

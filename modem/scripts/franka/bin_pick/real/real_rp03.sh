@@ -32,7 +32,7 @@ python train.py \
     exp_name=bin_pick_rp03_real2 \
     discount=0.95 \
     train_steps=100000 \
-    seed=3 \
+    seed=4 \
     demos=100 \
     img_size=224 \
     lr=3e-4 \

@@ -95,16 +95,18 @@ def collect_rollouts(env_name, mode, seed, render, camera_name, output_dir, outp
         success_percentage = env.env.evaluate_success(paths)
         if success_percentage > 0.5:
             file_name = output_dir + '/' + output_name + f'{(successes+seed):06d}'+ '.pickle'
-            pickle.dump(paths, open(file_name, 'wb'))
+            
+            paths.close()
+            paths.save(trace_name=file_name, verify_length=True, f_res=np.float64)
 
             successes += 1
 
             if 'env_infos' in paths[0]:
                 reward = np.sum(paths[0]['env_infos']['solved'] * 1.0)
-            elif 'env_infos' in paths[0]['Trial0']:
-                reward = np.sum([ _data['solved']*1.0 for _data in paths[0]['Trial0']['env_infos']])
-            elif 'env_infos/solved' in paths[0]['Trial0']:
-                reward = np.sum(paths[0]['Trial0']['env_infos/solved'] * 1.0)
+            elif 'env_infos' in paths[0]:
+                reward = np.sum([ _data['solved']*1.0 for _data in paths[0]['env_infos']])
+            elif 'env_infos/solved' in paths[0]:
+                reward = np.sum(paths[0]['env_infos/solved'] * 1.0)
             else:
                 raise NotImplementedError()
 

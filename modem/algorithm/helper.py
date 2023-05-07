@@ -431,6 +431,19 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
                 views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
         obs = np.stack(views, axis=1)
 
+        if 'BinPush' in cfg.task:
+            franka_task = FrankaTask.BinPush
+        elif 'HangPush' in cfg.task:
+            franka_task = FrankaTask.HangPush
+        elif 'PlanarPush' in cfg.task:
+            franka_task = FrankaTask.PlanarPush
+        elif 'BinPick' in cfg.task:
+            franka_task = FrankaTask.BinPick
+        elif 'BinReorient' in cfg.task:
+            franka_task = FrankaTask.BinReorient
+        else:
+            raise NotImplementedError()
+
         qp = pdata['env_infos/obs_dict/qp'][:cfg.episode_length+1]
         qv = pdata['env_infos/obs_dict/qv'][:cfg.episode_length+1]
         grasp_pos = pdata['env_infos/obs_dict/grasp_pos'][:cfg.episode_length+1]
@@ -442,14 +455,29 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         assert((np.abs(grasp_pos[1:]-grasp_pos[0]) > 1e-5).any())
         assert((np.abs(grasp_rot[1:]-grasp_rot[0]) > 1e-5).any())
 
-        if cfg.img_size > 0:                
-            state = np.concatenate([qp[:,:9],
-                                    qv[:,:9],
-                                    grasp_pos,
-                                    grasp_rot], axis=1)
+        if cfg.img_size > 0:    
+            if franka_task == FrankaTask.BinReorient:
+                state = np.concatenate([qp[:,:17],
+                                        qv[:,:17],
+                                        grasp_pos,
+                                        grasp_rot], axis=1)
+            elif not cfg.real_robot:      
+                state = np.concatenate([qp[:,:8],
+                                        qv[:,:8],
+                                        grasp_pos,
+                                        grasp_rot], axis=1)
+            else:
+                state = np.concatenate([qp[:,:9],
+                                        qv[:,:9],
+                                        grasp_pos,
+                                        grasp_rot], axis=1)                
         else:   
             assert((np.abs(obj_err[1:]-obj_err[0]) > 1e-5).any())
             assert((np.abs(tar_err[1:]-tar_err[0]) > 1e-5).any())
+
+            if len(tar_err.shape) < 2:
+                tar_err = tar_err[:,np.newaxis]
+
             state = np.concatenate([qp,
                                     qv,
                                     grasp_pos,
@@ -460,18 +488,9 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         state = torch.tensor(state, dtype=torch.float32)
 
 
-        actions = np.array(pdata['actions'])[:cfg.episode_length].clip(-1,1)
-        assert actions.shape[1] == 7  
-        if 'BinPush' in cfg.task:
-            franka_task = FrankaTask.BinPush
-        elif 'HangPush' in cfg.task:
-            franka_task = FrankaTask.HangPush
-        elif 'PlanarPush' in cfg.task:
-            franka_task = FrankaTask.PlanarPush
-        elif 'BinPick' in cfg.task:
-            franka_task = FrankaTask.BinPick
-        else:
-            raise NotImplementedError()
+        actions = np.array(pdata['actions'])[:cfg.episode_length]
+        assert((actions >= -1.0).all() and (actions <= 1.0).all())
+        assert (franka_task == FrankaTask.BinReorient and actions.shape[1] == 16) or actions.shape[1] == 7  
 
         if franka_task == FrankaTask.BinPick:
             aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
@@ -489,6 +508,13 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
             yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
             aug_actions[:,3] = np.cos(yaw)
             aug_actions[:,4] = np.sin(yaw)
+        elif franka_task == FrankaTask.BinReorient:
+            aug_actions = np.zeros((actions.shape[0],15),dtype=np.float32)
+            aug_actions[:,:3] = actions[:,:3]
+            yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
+            aug_actions[:,3] = np.cos(yaw)
+            aug_actions[:,4] = np.sin(yaw)   
+            aug_actions[:,5:] = actions[:,6:]         
         else:
             raise NotImplementedError()
 
@@ -515,6 +541,8 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
 
 def get_demos(cfg, env):
     fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
+    if len(fps) == 0:
+        fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
     episodes = []
     assert(cfg.task.startswith('franka-'))
 
@@ -526,6 +554,8 @@ def get_demos(cfg, env):
         franka_task = FrankaTask.PlanarPush
     elif 'BinPick' in cfg.task:
         franka_task = FrankaTask.BinPick
+    elif 'BinReorient' in cfg.task:
+        franka_task = FrankaTask.BinReorient
     else:
         raise NotImplementedError()
     exclude_fails = cfg.real_robot and (franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush)

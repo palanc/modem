@@ -80,31 +80,74 @@ class TrajectoryPlotter:
         self._wandb = wandb
         if cfg.task.startswith('franka-'):
             if cfg.img_size > 0:
-                self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
-                                        'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
-                                        'eef_x','eef_y','eef_z',
-                                        'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz']
-                self.state_enabled = [1,1,1,1,1,1,1,1,0,
-                                        0,0,0,0,0,0,0,0,0,
-                                        1,1,1,
-                                        0,0,0,0]
+                if 'BinReorient' in cfg.task:
+                    self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8','qp9','qp10','qp11','qp12','qp13','qp14','qp15','qp16',
+                                         'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8','qv9','qv10','qv11','qv12','qv13','qv14','qv15','qv16',
+                                         'eef_x','eef_y','eef_z',
+                                         'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz']
+                    self.state_enabled = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+                                          0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                          1,1,1,
+                                          0,0,0,0]
+
+                elif cfg.real_robot:
+                    self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
+                                            'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
+                                            'eef_x','eef_y','eef_z',
+                                            'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz']
+                    self.state_enabled = [1,1,1,1,1,1,1,1,0,
+                                            0,0,0,0,0,0,0,0,0,
+                                            1,1,1,
+                                            0,0,0,0]
+                else:
+                    self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7',
+                                            'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7',
+                                            'eef_x','eef_y','eef_z',
+                                            'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz']
+                    self.state_enabled = [1,1,1,1,1,1,1,1,
+                                            0,0,0,0,0,0,0,0,
+                                            1,1,1,
+                                            0,0,0,0]
+                    
             else:
-                self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
-                                     'qp9','qp10','qp11','qp12','qp13','qp14','qp15',
-                                     'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
-                                     'qv9','qv10','qv11','qv12','qv13','qv14',
-                                     'eef_x','eef_y','eef_z',
-                                     'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz',
-                                     'obj_err_x','obj_err_y','obj_err_z',
-                                     'tar_err_x','tar_err_y','tar_err_z',]
-                self.state_enabled = [1,1,1,1,1,1,1,1,0,
-                                      0,0,0,0,0,0,0,
-                                      0,0,0,0,0,0,0,0,0,
-                                      0,0,0,0,0,0,
-                                      1,1,1,
-                                      0,0,0,0,
-                                      0,0,0,
-                                      0,0,0]              
+                if 'BinReorient' in cfg.task:
+                    self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6',
+                                         'qp7','qp8','qp9','qp10','qp11','qp12','qp13','qp14','qp15','qp16',
+                                         'qp17','qp18','qp19','qp20','qp21','qp22','qp23',
+                                         'qv0','qv1','qv2','qv3','qv4','qv5','qv6',
+                                         'qv7','qv8','qv9','qv10','qv11','qv12','qv13','qv14','qv15','qv16',
+                                         'qv17','qv18','qv19','qv20','qv21','qv22',
+                                         'eef_x','eef_y','eef_z',
+                                         'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz',
+                                         'obj_err_x','obj_err_y','obj_err_z',
+                                         'tar_err']
+                    self.state_enabled = [1,1,1,1,1,1,1,
+                                          1,1,1,1,1,1,1,1,1,1,
+                                          0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,
+                                          1,1,1,
+                                          0,0,0,0,
+                                          0,0,0,
+                                          0]   
+                else:
+                    self.state_labels = ['qp0','qp1','qp2','qp3','qp4','qp5','qp6','qp7','qp8',
+                                        'qp9','qp10','qp11','qp12','qp13','qp14','qp15',
+                                        'qv0','qv1','qv2','qv3','qv4','qv5','qv6','qv7','qv8',
+                                        'qv9','qv10','qv11','qv12','qv13','qv14',
+                                        'eef_x','eef_y','eef_z',
+                                        'eef_qw', 'eef_qx', 'eef_qy', 'eef_qz',
+                                        'obj_err_x','obj_err_y','obj_err_z',
+                                        'tar_err_x','tar_err_y','tar_err_z',]
+                    self.state_enabled = [1,1,1,1,1,1,1,1,0,
+                                          0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,
+                                          1,1,1,
+                                          0,0,0,0,
+                                          0,0,0,
+                                          0,0,0]              
             if 'BinPick' in cfg.task:
                 self.act_labels = ['act_x','act_y','act_z','act_cos', 'act_sin','act_grasp']
                 self.act_enabled = [1,1,1,1,1,1]
@@ -124,7 +167,24 @@ class TrajectoryPlotter:
                 self.act_labels = ['act_x','act_y','act_z']
                 self.act_enabled = [1,1,1]
                 self.act_limits = {'low': np.array([0.3, -0.1, 1.25]),
-                                   'high': np.array([0.8, 0.1, 1.5])}                
+                                   'high': np.array([0.8, 0.1, 1.5])}     
+            elif 'BinReorient' in cfg.task:
+                self.act_labels = ['act_x','act_y','act_z','act_cos','act_sin',
+                                   'th_abd','th_mcp','th_pip','th_dip',
+                                   'mi_abd','mi_mcp','mi_pip',
+                                   'pi_abd','mi_mcp','mi_pip']
+                self.act_enabled = [1,1,1,1,1,
+                                    1,1,1,1,
+                                    1,1,1,
+                                    1,1,1]
+                self.act_limits = {'low': np.array([0.368,-0.25,0.9,-1,-1,
+                                                    -2.57,-0.2,-0.2,-0.2,
+                                                    -0.75,-0.2,-0.2,
+                                                    -0.75,-0.2,-0.2]),
+                                    'high': np.array([0.72,0.25,1.3,1,1,
+                                                      0.57,2.14,2.14,2.0,
+                                                      0.75,2.14,2.0,
+                                                      0.75,2.14,2.0])}           
             else:
                 raise NotImplementedError()
         else:

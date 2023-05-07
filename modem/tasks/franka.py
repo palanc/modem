@@ -20,6 +20,7 @@ class FrankaTask(Enum):
     BinPush=2
     HangPush=3
     PlanarPush=4
+    BinReorient=5
 
 class FrankaWrapper(gym.Wrapper):
     def __init__(self, env, cfg):
@@ -45,6 +46,8 @@ class FrankaWrapper(gym.Wrapper):
             self.franka_task = FrankaTask.HangPush
         elif 'PlanarPush' in cfg.task:
             self.franka_task = FrankaTask.PlanarPush
+        elif 'BinReorient' in cfg.task:
+            self.franka_task = FrankaTask.BinReorient
         else:
             raise NotImplementedError()
 
@@ -54,6 +57,9 @@ class FrankaWrapper(gym.Wrapper):
         elif self.franka_task == FrankaTask.PlanarPush:
             act_low = -np.ones(5)
             act_high = np.ones(5)
+        elif self.franka_task == FrankaTask.BinReorient:
+            act_low = -np.ones(15)
+            act_high = np.ones(15)
         else:
             act_low = -np.ones(3)
             act_high = np.ones(3)
@@ -88,18 +94,41 @@ class FrankaWrapper(gym.Wrapper):
         qv = self.env.sim.data.qvel.ravel()
         grasp_pos = self.env.sim.data.site_xpos[self.env.grasp_sid].ravel()
         grasp_rot = mat2quat(self.env.sim.data.site_xmat[self.env.grasp_sid].reshape(3,3).transpose())
-        obj_err = self.env.sim.data.site_xpos[self.env.object_sid]-self.env.sim.data.site_xpos[self.env.grasp_sid]
-        tar_err = self.env.sim.data.site_xpos[self.env.target_sid]-self.env.sim.data.site_xpos[self.env.object_sid]
+        
+        
+        if self.franka_task == FrankaTask.BinReorient:
+            obj_err = self.env.sim.data.site_xpos[self.env.object_sid]-self.env.sim.data.site_xpos[self.env.hand_sid]
+            tar_err = np.array([np.abs(self.env.sim.data.site_xmat[self.env.object_sid][-1] - 1.0)],dtype=np.float)
+        else:
+            obj_err = self.env.sim.data.site_xpos[self.env.object_sid]-self.env.sim.data.site_xpos[self.env.grasp_sid]
+            tar_err = self.env.sim.data.site_xpos[self.env.target_sid]-self.env.sim.data.site_xpos[self.env.object_sid]
 
         if self.cfg.img_size <= 0:
             manual = np.concatenate([qp,qv,grasp_pos,grasp_rot,obj_err,tar_err])
             assert(np.isclose(obs[:manual.shape[0]], manual).all())
         else:
-            manual = np.concatenate([qp[:9], qv[:9], grasp_pos,grasp_rot])
-            assert(np.isclose(obs[:9], qp[:9]).all())
-            assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+9], qv[:9]).all())
-            assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
-            assert(np.isclose(obs[qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]:qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]+4],grasp_rot).all())
+            if self.franka_task == FrankaTask.BinReorient:
+                manual = np.concatenate([qp[:17],
+                                         qv[:17],
+                                         grasp_pos,
+                                         grasp_rot])
+                assert(np.isclose(obs[:17], qp[:17]).all())
+                assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+17], qv[:17]).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]:qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]+4],grasp_rot).all())                
+            elif self.cfg.real_robot:
+                manual = np.concatenate([qp[:9], qv[:9], grasp_pos,grasp_rot])
+                assert(np.isclose(obs[:9], qp[:9]).all())
+                assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+9], qv[:9]).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]:qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]+4],grasp_rot).all())
+            else:
+                manual = np.concatenate([qp[:8], qv[:8], grasp_pos,grasp_rot])
+                assert(np.isclose(obs[:8], qp[:8]).all())
+                assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+8], qv[:8]).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
+                assert(np.isclose(obs[qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]:qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]+4],grasp_rot).all())
+
         return manual
 
 
@@ -114,12 +143,12 @@ class FrankaWrapper(gym.Wrapper):
         vis_obs_dict = self.env.visual_dict
         for i,camera_name in enumerate(self.camera_names):
 
-            if self.cfg.real_robot:
+            rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+            depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+            if rgb_key not in vis_obs_dict or depth_key not in vis_obs_dict:
                 rgb_key = 'rgb:'+camera_name+':240x424:2d'
                 depth_key = 'd:'+camera_name+':240x424:2d'
-            else:
-                rgb_key = 'rgb:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
-                depth_key = 'd:'+camera_name+':'+str(self.cfg.img_size)+'x'+str(self.cfg.img_size)+':2d'
+
             assert(rgb_key in vis_obs_dict and depth_key in vis_obs_dict)  
 
             rgb_img = vis_obs_dict[rgb_key].squeeze().transpose(2,0,1) # cxhxw
@@ -183,21 +212,36 @@ class FrankaWrapper(gym.Wrapper):
         return self._stacked_obs()            
 
     def get_base_env_action(self, action):
-        aug_action = np.zeros(7, dtype=action.dtype)
+        assert(len(action.shape)==1)
         if self.franka_task == FrankaTask.BinPick:
+            assert(action.shape[0] == 6)
+            aug_action = np.zeros(7, dtype=action.dtype)
             aug_action[:3] = action[:3]
             aug_action[3] = 1.0
             aug_action[4] = -1.0
             aug_action[5] = np.arctan2(action[4], action[3])
             aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
             aug_action[6] = 2*(int(action[5]>0.0)-0.5)
+        elif self.franka_task == FrankaTask.BinReorient:
+            assert(action.shape[0] == 15)
+            aug_action = np.zeros(16, dtype=action.dtype)
+            aug_action[:3] = action[:3]
+            aug_action[3] = 1.0
+            aug_action[4] = -1.0
+            aug_action[5] = np.arctan2(action[4], action[3])
+            aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
+            aug_action[6:] = action[5:]
         else:
+            aug_action = np.zeros(7, dtype=action.dtype)
             aug_action[:3] = action[:3]
             # Note that unset dimensions of aug_action will be clipped to a constant value
             # as specified in env/arms/franka/__init__.py
             if self.franka_task == FrankaTask.PlanarPush:
+                assert(action.shape[0] == 5)
                 aug_action[5] = np.arctan2(action[4], action[3])
                 aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
+            else:
+                assert(action.shape[0] == 3)
         return aug_action
 
     def get_trace_dict(self, action):

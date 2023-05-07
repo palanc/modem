@@ -3,10 +3,10 @@
 LOW_SEED=1
 HIGH_SEED=10
 GATHER_DIR_ROOT="/checkpoint/plancaster/outputs/robohive_base/logs"
-ENV_DIR="franka-FrankaPlanarPushReal_v2d"
-EXP_DIR="planar_push_real_bc_100demos"
+ENV_DIR="franka-FrankaBinPickRealRP05_v2d"
+EXP_DIR="bin_pick_real_bc_1000demos_rp05"
 ROOT_DIR="$GATHER_DIR_ROOT/$ENV_DIR/$EXP_DIR"
-MODEL_DIR="$ROOT_DIR/bc_models"
+MODEL_DIR="$ROOT_DIR/bin_pick_1000demos_rp05_models"
 
 # Check that directory exists
 if [ ! -d $ROOT_DIR ] 

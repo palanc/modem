@@ -62,8 +62,14 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
             
             if cfg.plan_policy:
                 horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
-                mean = rollout_agent.rollout_actions(obs, env.state, horizon)
-                std = cfg.min_std* torch.ones(horizon, cfg.action_dim, device=agent.device)   
+                mean = rollout_agent.rollout_actions(obs, env.state, horizon)   
+                if cfg.finger_noise <= cfg.min_std:
+                    std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=agent.device)   
+                else:
+                    assert(cfg.action_dim == 15)
+                    std = torch.ones(horizon, cfg.action_dim, device=agent.device)   
+                    std[:5] = cfg.min_std*std[:5]
+                    std[5:] = cfg.finger_noise*std[5:]                
                 action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())   
             else:
                 action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
@@ -275,7 +281,14 @@ def train(cfg: dict):
                     q_pol = bc_agent.model.pi
                 else:
                     q_pol = agent.model.pi
-                std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
+                if cfg.finger_noise <= cfg.min_std:
+                    std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
+                else:
+                    assert(cfg.action_dim == 15)
+                    std = torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
+                    std[:5] = cfg.min_std*std[:5]
+                    std[5:] = cfg.finger_noise*std[5:]
+
                 action = planner(obs, env.state, mean=mean, std=std, step=plan_step, t0=episode.first,q_pol=q_pol, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())         
             else:
                 action = planner(obs, env.state, step=plan_step, t0=episode.first, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
@@ -343,8 +356,8 @@ def train(cfg: dict):
 
         # Update model
         train_metrics = {}
-        if step >= cfg.seed_steps and len(buffer) >= cfg.seed_steps:
-            if step == cfg.seed_steps:
+        if ((step >= cfg.seed_steps and len(buffer) >= cfg.seed_steps) or cfg.seed_train):
+            if step == cfg.seed_steps and not cfg.seed_train:
                 print(
                     colored(
                         "Seeding complete, pretraining model...",
@@ -385,7 +398,7 @@ def train(cfg: dict):
                 assert((cfg.bc_rollout and cfg.bc_q_pol) or (not cfg.bc_rollout and not cfg.bc_q_pol))
                 if cfg.bc_rollout:
 
-                    if not cfg.real_robot:
+                    if False:#not cfg.real_robot:
                         eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
                     else:
                         eval_rew, eval_succ = -cfg.episode_length, 0.0

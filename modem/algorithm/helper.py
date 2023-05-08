@@ -489,7 +489,14 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
 
 
         actions = np.array(pdata['actions'])[:cfg.episode_length]
-        assert((actions >= -1.0).all() and (actions <= 1.0).all())
+        
+        if not cfg.real_robot and (cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush')):
+            actions = np.clip(actions,-1.0,1.0)
+
+        #assert((actions >= -1.01).all() and (actions <= 1.01).all())
+        if not((actions >= -1.0).all() and (actions <= 1.0).all()):
+            print('Found ep w/ oob actions, min {}, max {}'.format(actions.min(), actions.max()))
+        actions = np.clip(actions,-1.0,1.0)
         assert (franka_task == FrankaTask.BinReorient and actions.shape[1] == 16) or actions.shape[1] == 7  
 
         if franka_task == FrankaTask.BinPick:
@@ -521,18 +528,25 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         actions = aug_actions
 
         if cfg.real_robot:
-            rewards = torch.zeros((cfg.episode_length,), 
-                                    dtype=torch.float32, 
-                                    device=state.device)-1.0            
-            if franka_task == FrankaTask.BinPick:
-                if successful_trial:
-                    rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], None)                
-            elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush: 
-                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh) 
+            if not cfg.dense_reward:
+                rewards = torch.zeros((cfg.episode_length,), 
+                                        dtype=torch.float32, 
+                                        device=state.device)-1.0            
+                if franka_task == FrankaTask.BinPick:
+                    if successful_trial:
+                        rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], None)                
+                elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush: 
+                    rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh) 
+                else:
+                    raise NotImplementedError()  
             else:
-                raise NotImplementedError()            
+                assert(False, 'Dense rewards not available')
+                      
         else:         
-            rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
+            if not cfg.dense_reward:
+                rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
+            else:
+                rewards = np.array(pdata['env_infos/rwd_dense'][:cfg.episode_length], dtype=np.float32)
             
         episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
         episodes.append(episode)

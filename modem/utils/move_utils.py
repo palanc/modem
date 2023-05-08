@@ -6,6 +6,7 @@ import random
 import time
 from sklearn.decomposition import PCA
 from robohive.utils.quat_math import quat2euler
+from matplotlib import pyplot as plt
 
 MAX_GRIPPER_OPEN = 0.0002
 MIN_GRIPPER_CLOSED = 0.8228
@@ -500,7 +501,8 @@ def update_grasps(img, out_dir=None, min_pixels=9, luv_thresh=False, limit_yaw=T
 
     if luv_thresh:
         luv_img = cv2.cvtColor(np.array(img_masked).astype('float32')/255, cv2.COLOR_RGB2Luv)
-        from matplotlib import pyplot as plt
+        
+        plt.clf()
         plt.hist(luv_img[:,:,0].flatten(),bins=255,range=(1,luv_img[:,:,0].max()))
         plt.savefig(out_dir+'/luv_img_hist.png')
         binary_img = np.zeros_like(gray_img)

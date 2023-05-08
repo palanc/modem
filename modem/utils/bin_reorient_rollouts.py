@@ -91,7 +91,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             camera_name=camera_name,
             render=render)   
         print('Passed yaw {}'.format(real_yaw))
-        reorient_success, reset_img = check_reorient_success(env, obs)
+        reorient_success, reset_img = check_reorient_success(env, obs,out_dir=output_dir+'/debug')
 
         if reorient_success:
             time_stamp = time.strftime("%Y%m%d-%H%M%S")

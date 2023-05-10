@@ -29,12 +29,8 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False,rollout_agent=None,q_pol_agent=None):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
-    if rollout_agent is None:
-        rollout_agent = agent
-    if q_pol_agent is None:
-        q_pol_agent = agent
 
     episode_states = []
     episode_actions = []
@@ -54,25 +50,11 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
                 video.init(env, enabled=(i < 5))
             else:
                 video.init(env, enabled=(i == 0))
-        plan_step = step
-        planner = agent.plan
-        while not done:
-            if policy_rollout:
-                plan_step = 0
-            
-            if cfg.plan_policy:
-                horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
-                mean = rollout_agent.rollout_actions(obs, env.state, horizon)   
-                if cfg.finger_noise <= cfg.min_std:
-                    std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=agent.device)   
-                else:
-                    assert(cfg.action_dim == 15)
-                    std = torch.ones(horizon, cfg.action_dim, device=agent.device)   
-                    std[:5] = cfg.min_std*std[:5]
-                    std[5:] = cfg.finger_noise*std[5:]                
-                action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())   
-            else:
-                action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
+        while not done:              
+            action = agent.plan(obs, env.state, 
+                                eval_mode=True, 
+                                step=(0 if policy_rollout else step), 
+                                t0=t == 0)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
@@ -102,7 +84,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
 
     if traj_plot:
         if not cfg.real_robot:
-            rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, rollout_agent)
+            rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, agent)
         else:
             rollout_states, rollout_actions = episode_states, episode_actions
         traj_plot.save_traj(rollout_states, rollout_actions, 
@@ -184,22 +166,6 @@ def train(cfg: dict):
         agent.model.eval()
         agent.model_target.eval()      
 
-
-    bc_agent = TDMPC(cfg)
-    bc_model_fp = model_fp
-    if bc_model_fp is not None and start_step //cfg.action_repeat >= cfg.seed_steps:
-        bc_model_fp, _, _ = load_checkpt_fp(cfg, None, L._model_dir)
-    if bc_model_fp is not None:
-        print('BC model fp: {}'.format(bc_model_fp))
-        bc_agent_data = torch.load(bc_model_fp)
-        if isinstance(bc_agent_data, dict):
-            bc_agent.load(bc_agent_data)
-        else:
-            bc_agent = bc_agent_data
-            bc_agent.cfg = cfg
-        bc_agent.model.eval()
-        bc_agent.model_target.eval()
-
     # Load past episodes
 
     if cfg.real_robot:
@@ -242,8 +208,10 @@ def train(cfg: dict):
             if bc_start_step is None:
                 bc_start_step = 0
             agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step, valid_demo_buffer)
-            bc_agent.load(deepcopy(agent.state_dict()))
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
+
+    # Stop encoder and policy from updating any further
+    agent.model.track_pi_grad(False)
 
     if cfg.bc_only:
         L.save_model(agent, 0)
@@ -268,30 +236,8 @@ def train(cfg: dict):
         trace = Trace('rollout'+f'{(step//cfg.episode_length):010d}')
         trace.create_group('Trial0')
 
-        planner = agent.plan
-        plan_step = step
-        horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
         while not episode.done:
-            if cfg.plan_policy:
-                if cfg.bc_rollout:
-                    mean = bc_agent.rollout_actions(obs, env.state, horizon)
-                else:
-                    mean = agent.rollout_actions(obs, env.state, horizon)
-                if cfg.bc_q_pol:
-                    q_pol = bc_agent.model.pi
-                else:
-                    q_pol = agent.model.pi
-                if cfg.finger_noise <= cfg.min_std:
-                    std = cfg.min_std * torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
-                else:
-                    assert(cfg.action_dim == 15)
-                    std = torch.ones(horizon, cfg.action_dim, device=bc_agent.device)   
-                    std[:5] = cfg.min_std*std[:5]
-                    std[5:] = cfg.finger_noise*std[5:]
-
-                action = planner(obs, env.state, mean=mean, std=std, step=plan_step, t0=episode.first,q_pol=q_pol, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())         
-            else:
-                action = planner(obs, env.state, step=plan_step, t0=episode.first, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
+            action = agent.plan(obs, env.state, step=step, t0=episode.first) 
             trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
@@ -393,31 +339,12 @@ def train(cfg: dict):
 
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
-            if not cfg.real_robot or step >= cfg.seed_steps or cfg.plan_policy:
-
-                assert((cfg.bc_rollout and cfg.bc_q_pol) or (not cfg.bc_rollout and not cfg.bc_q_pol))
-                if cfg.bc_rollout:
-
-                    if False:#not cfg.real_robot:
-                        eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
-                    else:
-                        eval_rew, eval_succ = -cfg.episode_length, 0.0
-                    bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
-                else:
-                    eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
-                    if not cfg.real_robot:
-                        bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
-                    else:
-                        bc_eval_rew, bc_eval_succ = -cfg.episode_length, 0.0
-                print('BC Reward {}, BC Succ {}'.format(bc_eval_rew, bc_eval_succ))
-
-                print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
-            else:
-                eval_rew, eval_succ = -cfg.episode_length, 0.0
-                bc_eval_rew, bc_eval_succ = -cfg.episode_length, 0.0
+            
+            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
+            print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
+            
             common_metrics.update(
-                {"episode_reward": eval_rew, "episode_success": eval_succ,
-                 "bc_episode_reward": bc_eval_rew, "bc_episode_success":bc_eval_succ}
+                {"episode_reward": eval_rew, "episode_success": eval_succ}
             )
             L.log(common_metrics, category="eval")
 

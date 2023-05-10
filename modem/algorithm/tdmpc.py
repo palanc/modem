@@ -35,6 +35,13 @@ class TOLD(nn.Module):
         for m in [self._Q1, self._Q2]:
             h.set_requires_grad(m, enable)
 
+    def track_pi_grad(self, enable=True):
+        for m in self._encoder:
+            h.set_requires_grad(m, enable)
+        for m in self._state_encoder:
+            h.set_requires_grad(m, enable)
+        h.set_requires_grad(self._pi, enable)
+
     def h(self, obs, state):
         """Encodes an observation into its latent representation (h)."""
         x = self._state_encoder[0](state)
@@ -124,21 +131,15 @@ class TDMPC:
         return actions   
 
     @torch.no_grad()
-    def estimate_value(self, z, actions, horizon, q_pol=None):
+    def estimate_value(self, z):
         """Estimate value of a trajectory starting at latent state z and executing given actions."""
         G, discount = 0, 1
-        for t in range(horizon):
-            z, reward = self.model.next(z, actions[t])
-            G += discount * reward
-            discount *= self.cfg.discount
-        if q_pol is None:
-            G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
-        else:
-            G += discount * torch.min(*self.model.Q(z, q_pol(z, self.cfg.min_std)))
+        G += discount * torch.min(*self.model.Q(z, self.model.pi(z, self.cfg.min_std)))
+
         return G
 
     @torch.no_grad()
-    def plan(self, obs, state, mean=None, std=None, eval_mode=False, step=None, t0=True, q_pol=None, gt_rollout_start_state=None):
+    def plan(self, obs, state, eval_mode=False, step=None, t0=True):
         """
         Plan next action using TD-MPC inference.
         obs: raw input observation.
@@ -157,38 +158,17 @@ class TDMPC:
 
         # Encode observation only once
         z_obs = self.model.h(obs, state)
+        
+        mean = self.model.pi(z_obs, 0.0)
+        std = self.cfg.min_std * torch.ones(self.cfg.action_dim, device=self.device)
 
-        # Sample policy trajectories
-        horizon = int(
-            min(self.cfg.horizon, h.linear_schedule(self.cfg.horizon_schedule, step))
-        )
-
-        num_pi_trajs = int(self.cfg.mixture_coef * self.cfg.num_samples)
-        if num_pi_trajs > 0:
-            pi_actions = torch.empty(
-                horizon, num_pi_trajs, self.cfg.action_dim, device=self.device
-            )
-            z = z_obs.repeat(num_pi_trajs, 1)
-            for t in range(horizon):
-                pi_actions[t] = self.model.pi(z, self.cfg.min_std)
-                z, _ = self.model.next(z, pi_actions[t])
-
-        # Initialize state and parameters
-        z = z_obs.repeat(self.cfg.num_samples + num_pi_trajs, 1)
-        if mean is None:
-            mean = torch.zeros(horizon, self.cfg.action_dim, device=self.device)
-            if not t0 and hasattr(self, "_prev_mean"):
-                mean[:-1] = self._prev_mean[1:]
-        if std is None:
-            std = 2 * torch.ones(horizon, self.cfg.action_dim, device=self.device)
-
+        z = z_obs.repeat(self.cfg.num_samples, 1)
         # Iterate
         for _ in range(self.cfg.iterations):
             actions = torch.clamp(
-                mean.unsqueeze(1)
-                + std.unsqueeze(1)
+                mean.unsqueeze(0)
+                + std.unsqueeze(0)
                 * torch.randn(
-                    horizon,
                     self.cfg.num_samples,
                     self.cfg.action_dim,
                     device=std.device,
@@ -196,22 +176,9 @@ class TDMPC:
                 -1,
                 1,
             )
-            if num_pi_trajs > 0:
-                actions = torch.cat([actions, pi_actions], dim=1)
 
-            if gt_rollout_start_state is not None:
-                paths = gather_paths_parallel(self.cfg, 
-                                              gt_rollout_start_state,
-                                              actions.cpu().numpy(),
-                                              self.cfg.seed, 
-                                              self.cfg.num_samples//self.cfg.num_cpu, 
-                                              self.cfg.num_cpu)
-                value = torch.empty(len(paths),1, device=self.device)
-                for i, path in enumerate(paths):
-                    value[i,0] = path['rewards'][-1]
-            else:
-                # Compute elite actions
-                value = self.estimate_value(z, actions, horizon, q_pol=q_pol).nan_to_num_(0)
+            # Compute elite actions
+            value = self.estimate_value(z).nan_to_num_(0)
             elite_idxs = torch.topk(
                 value.squeeze(1), self.cfg.num_elites, dim=0
             ).indices
@@ -421,7 +388,9 @@ class TDMPC:
             if demo_buffer is not None:
                 demo_buffer.update_priorities(demo_idxs, priorities[self.cfg.batch_size :])
 
-        pi_loss = self.update_pi(zs)
+        #pi_loss = self.update_pi(zs)
+        pi_loss = 0.0
+
         if step % self.cfg.update_freq == 0:
             h.soft_update_params(self.model, self.model_target, self.cfg.tau)
 

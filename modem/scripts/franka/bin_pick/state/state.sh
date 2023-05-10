@@ -3,7 +3,7 @@
 <<test
 python train.py \
     task=franka-FrankaBinPick  \
-    exp_name=test \
+    exp_name=test-ace \
     discount=0.95 \
     train_steps=200000 \
     seed=1 \
@@ -23,17 +23,15 @@ python train.py \
     episode_length=100 \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base'
-    
 test
-
 
 python train.py -m \
     task=franka-FrankaBinPick  \
-    exp_name=bin_pick_state \
+    exp_name=bin_pick_state-act-crit \
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \
-    demos=1000 \
+    demos=100 \
     img_size=0 \
     lr=1e-3 \
     batch_size=512 \
@@ -46,7 +44,6 @@ python train.py -m \
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
-
 
 
 

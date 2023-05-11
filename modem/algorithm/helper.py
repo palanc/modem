@@ -383,7 +383,7 @@ def get_demos_h5(cfg, env):
             if cfg.real_robot:
                 rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)
             else:                
-                rewards = np.array(paths[trial]['env_infos']['solved'][:cfg.episode_length], dtype=np.float32)-1.
+                rewards = np.array(paths[trial]['env_infos']['solved'][:cfg.episode_length], dtype=np.float32)#-1.
             
             episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
             episodes.append(episode)
@@ -531,7 +531,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
             if not cfg.dense_reward:
                 rewards = torch.zeros((cfg.episode_length,), 
                                         dtype=torch.float32, 
-                                        device=state.device)-1.0            
+                                        device=state.device)#-1.0            
                 if franka_task == FrankaTask.BinPick:
                     if successful_trial:
                         rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], None)                
@@ -544,7 +544,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
                       
         else:         
             if not cfg.dense_reward:
-                rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)-1.
+                rewards = np.array(pdata['env_infos/solved'][:cfg.episode_length], dtype=np.float32)#-1.
             else:
                 rewards = np.array(pdata['env_infos/rwd_dense'][:cfg.episode_length], dtype=np.float32)
             

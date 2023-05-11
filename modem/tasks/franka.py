@@ -270,9 +270,9 @@ class FrankaWrapper(gym.Wrapper):
         self._frames.append(obs)
         info["success"] = info["solved"]
         if not self.cfg.dense_reward:
-            reward = float(info["success"]) - 1.0
+            reward = float(info["success"])# - 1.0
         if self.cfg.real_robot:
-            reward = -1.0
+            reward = 0.0#-1.0
         return self._stacked_obs(), reward, False, info
 
     def render(self, mode="rgb_array", width=None, height=None, camera_id=None):
@@ -362,11 +362,11 @@ def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
     assert(states.shape[1] == 25)
     rewards = torch.zeros(
         (cfg.episode_length,), dtype=torch.float32, device=states.device
-    )-1.0
+    )#-1.0
     if cfg.task.startswith('franka-FrankaBinPick'):
         for i in reversed(range(cfg.episode_length)):
             if states[i+1, -5] > 1.0:
-                rewards[i] = 0.0
+                rewards[i] = 1.0#0.0
             else:
                 break
     elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
@@ -378,7 +378,7 @@ def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
         for t in range(1,obs.shape[0]):
             img_success, luv_angle = col_thresh.detect_success(imgs[t])
             if img_success:
-                rewards[t-1] = 0
+                rewards[t-1] = 1.0
         print('Ep reward: {}'.format(torch.sum(rewards).item()))
     else:
         raise NotImplementedError()

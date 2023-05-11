@@ -208,10 +208,10 @@ def train(cfg: dict):
             if bc_start_step is None:
                 bc_start_step = 0
             agent.init_bc(demo_buffer if cfg.get("demo_schedule", 0) != 0 else buffer, L, bc_start_step, valid_demo_buffer)
+            agent.post_bc_load()
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
-    # Stop encoder and policy from updating any further
-    agent.model.track_pi_grad(False)
+    agent.freeze_bc()
 
     if cfg.bc_only:
         L.save_model(agent, 0)
@@ -315,8 +315,9 @@ def train(cfg: dict):
             else:
                 num_updates = cfg.episode_length
             for i in range(num_updates):
-                train_metrics.update(agent.update(buffer, step + i, demo_buffer))
+                train_metrics.update(agent.update(buffer, step + i, demo_buffer, seeding=(num_updates == cfg.seed_steps)))
             if step == cfg.seed_steps:
+                agent.unfreeze_online()
                 print(colored("Phase 3: interactive learning", "blue", attrs=["bold"]))
 
         # Log training episode

@@ -190,8 +190,21 @@ class TDMPC:
         G, discount = 0, 1
 
         # Compute q val for bc
-        q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
-        
+        #q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
+        q_bc = []
+        z_learned_broadcast = z_learned[0].repeat(actions_bc.shape[0],1)
+        for i in range(len(self.model._acs)):
+            if i == 0:
+                q1_val, q2_val = self.model._acs[i].Q(z_bc, actions_bc)
+            else:
+                q1_val, q2_val = self.model._acs[i].Q(z_learned_broadcast, actions_bc)
+            q_bc.append(q1_val)
+            q_bc.append(q2_val)
+        q_bc = torch.stack(q_bc, dim=0)
+        BC_min = torch.min(q_bc, dim=0).values
+        BC_mean = torch.mean(q_bc, dim=0)
+        BC_std = torch.std(q_bc, dim=0)
+
         for t in range(horizon):
             z_learned, reward = self.model.next(z_learned, actions_learned[t])
             G += discount * reward
@@ -226,7 +239,7 @@ class TDMPC:
         G_mean = torch.mean(G, dim=0)        
         G_std = torch.std(G, dim=0)
 
-        return q_bc, G_min, G_mean, G_std
+        return BC_min, BC_mean, BC_std, G_min, G_mean, G_std
 
     @torch.no_grad()
     def compute_elite_actions(self, actions, value, num_elites):
@@ -263,7 +276,7 @@ class TDMPC:
 
         # Seed steps
         if step <= self.cfg.seed_steps:# and not eval_mode:
-            return self.act(obs, state).squeeze(0)
+            return self.act(obs, state).squeeze(0), None
 
         horizon = int(
             min(self.cfg.horizon, h.linear_schedule(self.cfg.horizon_schedule, step))
@@ -314,13 +327,14 @@ class TDMPC:
                 actions_learned = torch.clamp(actions_learned, -1, 1)
             
             
-            value_bc, G_min, G_mean, G_std = self.estimate_value(z_bc=z_bc,
-                                                                 z_learned=z_learned,
-                                                                 actions_bc=actions_bc,
-                                                                 actions_learned=actions_learned,
-                                                                 horizon=horizon)
+            BC_min, BC_mean, BC_std, G_min, G_mean, G_std = self.estimate_value(z_bc=z_bc,
+                                                                                z_learned=z_learned,
+                                                                                actions_bc=actions_bc,
+                                                                                actions_learned=actions_learned,
+                                                                                horizon=horizon)
 
             value_learn = self.cfg.val_min_w*G_min + self.cfg.val_mean_w*G_mean + self.cfg.val_std_w*G_std
+            value_bc = self.cfg.val_min_w*BC_min + self.cfg.val_mean_w*BC_mean + self.cfg.val_std_w*BC_std
             value_bc = value_bc.nan_to_num(-self.cfg.episode_length).squeeze(1)
             value_learn = value_learn.nan_to_num(-self.cfg.episode_length).squeeze(1)
 
@@ -382,10 +396,19 @@ class TDMPC:
         score = score.cpu().numpy()
         action = elite_actions[np.random.choice(np.arange(score.shape[0]), p=score)]
 
+        q_stats = {'max_frozen_min': BC_min.max().item(),
+                   'max_frozen_mean': BC_mean.max().item(),
+                   'max_frozen_std': BC_std.max().item(),
+                   'min_frozen_std': BC_std.min().item(),
+                   'max_model_min': G_min.max().item(),
+                   'max_model_mean': G_mean.max().item(),
+                   'max_model_std': G_std.max().item(),
+                   'min_model_std': G_std.min().item(),}
+
         if not eval_mode:
             action += out_std * torch.randn(self.cfg.action_dim, device=self.device)
 
-        return action.clamp_(-1, 1)
+        return action.clamp_(-1, 1), q_stats
 
     def eval_batch(self, buffer):
         obs, _, action, _, state, _, _, _ = buffer.sample()
@@ -452,22 +475,37 @@ class TDMPC:
         self.model.track_learn_encoder_grad(False)
 
         for i in range(len(self.model._acs)):
-            self.model._acs[i].track_pi_grad(False)        
+            self.model._acs[i].track_pi_grad(False)   
+            self.model._acs[i].track_q_grad(False)        
         
         self.model_target.track_encoder_grad(False)
         self.model_target.track_learn_encoder_grad(False)
         
         for i in range(len(self.model_target._acs)):
             self.model_target._acs[i].track_pi_grad(False)
+            self.model_target._acs[i].track_q_grad(False)
 
     def unfreeze_online(self):
-        self.model.track_learn_encoder_grad(True)
-        for i in range(1,len(self.model._acs)):
-            self.model._acs[i].track_pi_grad(True)  
+        #self.model.track_learn_encoder_grad(True)
+        #for i in range(1,len(self.model._acs)):
+        #    self.model._acs[i].track_pi_grad(True)  
+        for i in range(len(self.model._acs)):
+            self.model._acs[i].track_q_grad(True)  
 
-        self.model_target.track_learn_encoder_grad(True)
+        #self.model_target.track_learn_encoder_grad(True)
+        #for i in range(1,len(self.model_target._acs)):
+        #    self.model_target._acs[i].track_pi_grad(True)        
+        for i in range(len(self.model_target._acs)):
+            self.model_target._acs[i].track_q_grad(True)        
+
+    def unfreeze_final(self):
+        #self.model.track_learn_encoder_grad(True)
+        for i in range(1,len(self.model._acs)):
+            self.model._acs[i].track_pi_grad(True)          
+
+        #self.model_target.track_learn_encoder_grad(True)
         for i in range(1,len(self.model_target._acs)):
-            self.model_target._acs[i].track_pi_grad(True)        
+            self.model_target._acs[i].track_pi_grad(True)   
 
     def update_pi(self, zs):
         """Update policy using a sequence of latent states."""
@@ -511,7 +549,7 @@ class TDMPC:
             td_targets.append(td_target)
         return td_targets
 
-    def update(self, replay_buffer, step=int(1e6), demo_buffer=None, seeding=False):
+    def update(self, replay_buffer, step=int(1e6), demo_buffer=None, train_pi=False):
         """Main update function. Corresponds to one iteration of the TOLD model learning."""
         # Update oversampling ratio
         self.demo_batch_size = int(
@@ -619,7 +657,7 @@ class TDMPC:
             if demo_buffer is not None:
                 demo_buffer.update_priorities(demo_idxs, priorities[self.cfg.batch_size :])
 
-        if not seeding:
+        if train_pi:
             pi_loss = self.update_pi(zs)
         else:
             pi_loss = 0.0

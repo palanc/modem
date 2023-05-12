@@ -29,7 +29,7 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False, logger=None):
     """Evaluate a trained agent and optionally save a video."""
 
     episode_states = []
@@ -38,6 +38,8 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
     episode_successes = []
     episode_start_states = []
 
+    ep_q_stats = []
+    ep_q_success = []
     for i in range(cfg.eval_episodes):
         print('Episode {}'.format(i))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
@@ -45,26 +47,29 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
         obs_unstacked = [obs[0,-4:-1]]
         actions = []
+        q_stats = []
         if video:
             if cfg.real_robot:
                 video.init(env, enabled=(i < 5))
             else:
                 video.init(env, enabled=(i == 0))
         while not done:              
-            action = agent.plan(obs, env.state, 
-                                eval_mode=True, 
-                                step=(0 if policy_rollout else step), 
-                                t0=t == 0)   
+            action, q_stat = agent.plan(obs, env.state, 
+                                        eval_mode=True, 
+                                        step=(0 if policy_rollout else step), 
+                                        t0=t == 0)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
             obs_unstacked.append(obs[0,-4:-1])
             actions.append(env.base_env().last_eef_cmd)
             ep_reward += reward
+            if q_stat is not None:
+                q_stats.append(q_stat)
             if video:
                 video.record(env)
             t += 1
-        ep_success = info.get('success', 0)
+        ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
 
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
@@ -79,8 +84,15 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         episode_actions.append(np.stack(actions, axis=0))
         episode_rewards.append(ep_reward)
         episode_successes.append(ep_success)
+        if len(q_stats) > 0:
+            ep_q_stats.append(q_stats)
+            ep_q_success.append(ep_success)
         if video:
             video.save(env_step)
+
+    if len(ep_q_stats) > 0 and logger is not None:
+        print('LOGGING Q VALS')
+        logger.log_q_vals(env_step, ep_q_stats, ep_q_success)
 
     if traj_plot:
         if not cfg.real_robot:
@@ -154,6 +166,8 @@ def train(cfg: dict):
     print(agent.model)
 
     model_fp, start_step, bc_start_step = load_checkpt_fp(cfg, L._model_dir, L._model_dir)
+    skip_batch_train = (model_fp is not None) and (start_step >= cfg.seed_steps)
+
     assert(start_step == 0 or bc_start_step is None)
     if model_fp is not None:
         print('Loading agent '+str(model_fp))
@@ -166,12 +180,20 @@ def train(cfg: dict):
         agent.model.eval()
         agent.model_target.eval()      
 
+    if model_fp is not None: 
+        if start_step > cfg.seed_steps:
+            agent.unfreeze_online()
+        if start_step > cfg.final_unfreeze:
+            agent.unfreeze_final()
+
+
     # Load past episodes
 
-    if cfg.real_robot:
+    if True:#cfg.real_robot:
         for i in range(start_step//cfg.episode_length):
             trace_fn = 'rollout'+f'{(i):010d}.pickle'
-            trace_path = episode_dir+'/'+trace_fn   
+            trace_path = episode_dir+'/'+trace_fn  
+            print(trace_path) 
             assert(os.path.isfile(trace_path) )
             paths = Trace.load(trace_path)
             paths_episodes = trace2episodes(cfg=cfg,
@@ -237,7 +259,7 @@ def train(cfg: dict):
         trace.create_group('Trial0')
 
         while not episode.done:
-            action = agent.plan(obs, env.state, step=step, t0=episode.first) 
+            action, _ = agent.plan(obs, env.state, step=step, t0=episode.first) 
             trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
@@ -256,49 +278,54 @@ def train(cfg: dict):
                 episode.reward = new_rewards
                 episode.cumulative_reward = torch.sum(episode.reward).item()
                 print('Ep reward {}'.format(episode.cumulative_reward))
-
-            for success_idx in range(cfg.episode_length+1):
-                trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
-            trace_fn = trace.name + '.pickle'
-            trace_path = episode_dir+'/'+trace_fn
-            print('Saving {}'.format(trace_path))
-            trace.stack()
-            trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
+        else:
+            task_success = np.sum(episode.cumulative_reward) >= 5
+        for success_idx in range(cfg.episode_length+1):
+            trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
+        trace_fn = trace.name + '.pickle'
+        trace_path = episode_dir+'/'+trace_fn
+        print('Saving {}'.format(trace_path))
+        trace.stack()
+        trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
         
-            '''
-            paths = Trace.load(trace_path)
-            paths_episodes = trace2episodes(cfg=cfg,
-                                            env=env,
-                                            trace=paths,
-                                            exclude_fails=False,
-                                            is_demo=False)
-            loaded_ep = paths_episodes[0]
-            import cv2
-            for i in range(cfg.episode_length+1):
-                diff = torch.sum(episode.obs[i,0,-4:-1]-loaded_ep.obs[i,0,-4:-1])
-                if diff > 0:
-                    ep_img = episode.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
-                    load_ep_img = loaded_ep.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
-                    cv2.imwrite('/home/plancaster/Pictures/{}ep_img.png'.format(i), ep_img)
-                    cv2.imwrite('/home/plancaster/Pictures/{}load_ep_img.png'.format(i), load_ep_img)
+        '''
+        paths = Trace.load(trace_path)
+        paths_episodes = trace2episodes(cfg=cfg,
+                                        env=env,
+                                        trace=paths,
+                                        exclude_fails=False,
+                                        is_demo=False)
+        loaded_ep = paths_episodes[0]
+        import cv2
+        for i in range(cfg.episode_length+1):
+            diff = torch.sum(episode.obs[i,0,-4:-1]-loaded_ep.obs[i,0,-4:-1])
+            if diff > 0:
+                ep_img = episode.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
+                load_ep_img = loaded_ep.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
+                cv2.imwrite('/home/plancaster/Pictures/{}ep_img.png'.format(i), ep_img)
+                cv2.imwrite('/home/plancaster/Pictures/{}load_ep_img.png'.format(i), load_ep_img)
 
-            #print('diff {}'.format(episode.obs[0,0,-1,0:3,:10]-loaded_ep.obs[0,0,-1,0:3,:10]))
-            t_buff1 = ReplayBuffer(cfg)
-            t_buff1 += episode
-            t_buff2 = ReplayBuffer(cfg)
-            t_buff2 += loaded_ep
-            print('obs diff {}'.format(torch.sum(t_buff1._obs[:cfg.episode_length]-t_buff2._obs[:cfg.episode_length])))
-            print('last obs diff {}'.format(torch.sum(t_buff1._last_obs[0]-t_buff2._last_obs[0])))
-            print('state diff {}'.format(torch.sum(torch.abs(t_buff1._state[:cfg.episode_length]-t_buff2._state[:cfg.episode_length]))))
-            print('last state diff {}'.format(torch.sum(torch.abs(t_buff1._last_state[0]-t_buff2._last_state[0]))))
-            print('action diff {}'.format(torch.sum(torch.abs(t_buff1._action[:cfg.episode_length]-t_buff2._action[:cfg.episode_length]))))
-            print('reward diff {}'.format(torch.sum(torch.abs(t_buff1._reward[:cfg.episode_length]-t_buff2._reward[:cfg.episode_length]))))
-            print('done diff {}'.format(not (episode.done ^ loaded_ep.done)))
-            print('cum rew diff {}'.format(episode.cumulative_reward-loaded_ep.cumulative_reward))
-            exit()
-            '''
+        #print('diff {}'.format(episode.obs[0,0,-1,0:3,:10]-loaded_ep.obs[0,0,-1,0:3,:10]))
+        t_buff1 = ReplayBuffer(cfg)
+        t_buff1 += episode
+        t_buff2 = ReplayBuffer(cfg)
+        t_buff2 += loaded_ep
+        print('obs diff {}'.format(torch.sum(t_buff1._obs[:cfg.episode_length]-t_buff2._obs[:cfg.episode_length])))
+        print('last obs diff {}'.format(torch.sum(t_buff1._last_obs[0]-t_buff2._last_obs[0])))
+        print('state diff {}'.format(torch.sum(torch.abs(t_buff1._state[:cfg.episode_length]-t_buff2._state[:cfg.episode_length]))))
+        print('last state diff {}'.format(torch.sum(torch.abs(t_buff1._last_state[0]-t_buff2._last_state[0]))))
+        print('action diff {}'.format(torch.sum(torch.abs(t_buff1._action[:cfg.episode_length]-t_buff2._action[:cfg.episode_length]))))
+        print('reward diff {}'.format(torch.sum(torch.abs(t_buff1._reward[:cfg.episode_length]-t_buff2._reward[:cfg.episode_length]))))
+        print('done diff {}'.format(not (episode.done ^ loaded_ep.done)))
+        print('cum rew diff {}'.format(episode.cumulative_reward-loaded_ep.cumulative_reward))
+        exit()
+        '''
 
         buffer += episode
+
+        if step == cfg.final_unfreeze:
+            print('***********FINAL UNFREEZE *******************')
+            agent.unfreeze_final()
 
         # Update model
         train_metrics = {}
@@ -311,11 +338,14 @@ def train(cfg: dict):
                         attrs=["bold"],
                     )
                 )
-                num_updates = cfg.seed_steps
+                if skip_batch_train:
+                    num_updates = 0
+                else:
+                    num_updates = cfg.seed_steps
             else:
                 num_updates = cfg.episode_length
             for i in range(num_updates):
-                train_metrics.update(agent.update(buffer, step + i, demo_buffer, seeding=(num_updates == cfg.seed_steps)))
+                train_metrics.update(agent.update(buffer, step + i, demo_buffer, train_pi=(step >=cfg.final_unfreeze)))
             if step == cfg.seed_steps:
                 agent.unfreeze_online()
                 print(colored("Phase 3: interactive learning", "blue", attrs=["bold"]))
@@ -334,14 +364,14 @@ def train(cfg: dict):
         train_metrics.update(common_metrics)
         L.log(train_metrics, category="train")
 
-        if cfg.save_model and env_step % cfg.save_freq == 0:# and env_step > 0:
+        if cfg.save_model and env_step % cfg.save_freq == 0 and (start_step==0 or step > start_step):# and env_step > 0:
             L.save_model(agent, env_step)
             print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
 
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
-            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
+            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, logger=L)
             print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             
             common_metrics.update(

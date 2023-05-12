@@ -360,6 +360,102 @@ class Logger(object):
                 artifact.add_file(fp)
                 self._wandb.log_artifact(artifact)
 
+    def _draw_q_plot(self, q1, q2, ax, title, labels, colors):
+        assert(len(q1) == 2 and len(q2)==2)
+        assert(q1[0].shape == q2[0].shape)
+        assert(q1[1].shape == q2[1].shape)
+        assert(len(labels)==2)
+        assert(len(colors)==2)
+        ax.set_title(title)
+        ax.set_xlabel('t')
+        t = np.arange(q1[0].shape[1])
+
+        if q1[0].shape[0] > 0:
+            q1_mean_fail = np.mean(q1[0], axis=0)
+            q1_std_fail = np.std(q1[0], axis=0)
+            ax.plot(t, q1_mean_fail, label=labels[0][0], color=colors[0][0])
+            ax.fill_between(t, q1_mean_fail+q1_std_fail, q1_mean_fail-q1_std_fail,color=(*colors[0][0],0.3))        
+        
+        if q1[1].shape[0] > 0:
+            q1_mean_success = np.mean(q1[1], axis=0)
+            q1_std_success = np.std(q1[1], axis=0)     
+            ax.plot(t, q1_mean_success, label=labels[0][1], color=colors[0][1])
+            ax.fill_between(t, q1_mean_success+q1_std_success, q1_mean_success-q1_std_success,color=(*colors[0][1],0.3))   
+        
+        if q2[0].shape[0] > 0:
+            q2_mean_fail = np.mean(q2[0], axis=0)
+            q2_std_fail = np.std(q2[0], axis=0)
+            ax.plot(t, q2_mean_fail, label=labels[1][0], color=colors[1][0])
+            ax.fill_between(t, q2_mean_fail+q2_std_fail, q2_mean_fail-q2_std_fail,color=(*colors[1][0],0.3))     
+
+        if q2[1].shape[0] > 0:
+            q2_mean_success = np.mean(q2[1], axis=0)
+            q2_std_success = np.std(q2[1], axis=0)                   
+            ax.plot(t, q2_mean_success, label=labels[1][1], color=colors[1][1])
+            ax.fill_between(t, q2_mean_success+q2_std_success, q2_mean_success-q2_std_success,color=(*colors[1][1],0.3))   
+ 
+        ax.legend()
+
+    # q: (# traj, episode len)
+    def log_q_vals(self, step, q_stats, q_success):
+                   #max_frozen_min, max_frozen_mean, max_frozen_std, min_frozen_std,
+                   #max_model_min, max_model_mean, max_model_std, min_model_std):
+        successes = np.sum(q_success)
+        fails = len(q_success) - successes
+        max_frozen_min = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        max_frozen_mean = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        max_frozen_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        min_frozen_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        max_model_min = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        max_model_mean = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        max_model_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        min_model_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        
+        fail_idx = 0
+        success_idx = 0
+        for i in range(len(q_stats)):
+            f_idx = int(q_success[i])
+            s_idx = success_idx if q_success[i] else fail_idx
+            for j in range(len(q_stats[i])):
+                max_frozen_min[f_idx][s_idx][j] = q_stats[i][j]['max_frozen_min']
+                max_frozen_mean[f_idx][s_idx][j] = q_stats[i][j]['max_frozen_mean']
+                max_frozen_std[f_idx][s_idx][j] = q_stats[i][j]['max_frozen_std']
+                min_frozen_std[f_idx][s_idx][j] = q_stats[i][j]['min_frozen_std']
+                max_model_min[f_idx][s_idx][j] = q_stats[i][j]['max_model_min']
+                max_model_mean[f_idx][s_idx][j] = q_stats[i][j]['max_model_mean']
+                max_model_std[f_idx][s_idx][j] = q_stats[i][j]['max_model_std']
+                min_model_std[f_idx][s_idx][j] = q_stats[i][j]['min_model_std']                     
+            if q_success[i]:
+                success_idx += 1
+            else:
+                fail_idx += 1
+        assert(success_idx == successes and fail_idx == fails)
+
+        #max_frozen_min = np.mean(max_frozen_min, axis=0)
+        #max_frozen_mean = np.mean(max_frozen_mean,axis=0)
+        #max_frozen_std = np.mean(max_frozen_std,axis=0)
+        #min_frozen_std = np.mean(min_frozen_std,axis=0)
+        #max_model_min = np.mean(max_model_min,axis=0)
+        #max_model_mean = np.mean(max_model_mean,axis=0)
+        #max_model_std = np.mean(max_model_std,axis=0)
+        #min_model_std = np.mean(min_model_std,axis=0)  
+
+        plt.clf()
+        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        plt.tight_layout(h_pad=3)
+        colors = [((0,1,0),(0,0,1)), ((1,0,0),(1,0,1))]
+        labels = [('frozen_fail', 'frozen_success'), ('model_fail', 'model_success')]
+        self._draw_q_plot(max_frozen_min, max_model_min, axs[0,0], 
+                          'max(Q_min)', labels, colors)
+        self._draw_q_plot(max_frozen_mean, max_model_mean, axs[0,1],
+                          'max(Q_mean)', labels, colors)
+        self._draw_q_plot(max_frozen_std, max_model_std, axs[1,0], 
+                          'max(Q_std)', labels, colors)
+        self._draw_q_plot(min_frozen_std, min_model_std, axs[1,1],
+                          'min(Q_std)', labels, colors)
+
+        self._wandb.log({'Q Plots': self._wandb.Image(plt)}, step=step, commit=True)
+
     def finish(self):
         if self._wandb:
             self._wandb.finish()

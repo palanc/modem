@@ -29,7 +29,7 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False, logger=None):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot, q_plot, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
 
     episode_states = []
@@ -90,9 +90,9 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         if video:
             video.save(env_step)
 
-    if len(ep_q_stats) > 0 and logger is not None:
+    if len(ep_q_stats) > 0 and q_plot is not None:
         print('LOGGING Q VALS')
-        logger.log_q_vals(env_step, ep_q_stats, ep_q_success)
+        q_plot.log_q_vals(env_step, ep_q_stats, ep_q_success)
 
     if traj_plot:
         if not cfg.real_robot:
@@ -180,6 +180,7 @@ def train(cfg: dict):
         agent.model.eval()
         agent.model_target.eval()      
 
+    assert(cfg.final_unfreeze > 0)
     if model_fp is not None: 
         if start_step > cfg.seed_steps:
             agent.unfreeze_online()
@@ -239,7 +240,7 @@ def train(cfg: dict):
         L.save_model(agent, 0)
         print(colored(f'Model has been checkpointed', 'yellow', attrs=['bold']))
                         
-        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, L.traj_plot, policy_rollout=True)
+        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, L.traj_plot, L.q_plot, policy_rollout=True)
         common_metrics = {"env_step": 0, "episode_reward": eval_rew, "episode_success": eval_succ}
         L.log(common_metrics, category="eval")
         print('Eval reward: {}, Eval success: {}'.format(eval_rew, eval_succ))
@@ -371,7 +372,7 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
-            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, logger=L)
+            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
             print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             
             common_metrics.update(

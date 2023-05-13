@@ -2,7 +2,7 @@
 
 python launch_rollouts.py \
     env_name=FrankaBinPick-v0 \
-    mode=evaluation \
+    mode=exploration \
     seed=0 \
     output_dir=/checkpoint/plancaster/outputs/robohive_base/demonstrations/franka-FrankaBinPick \
     num_rollouts=1000 \

@@ -101,7 +101,8 @@ ensemble_size: 6
 val_min_w: 0.0
 val_mean_w: 1.0
 val_std_w: 0.0
-final_unfreeze: 1000000
+final_unfreeze: -1
+mix_schedule: false
 
 hydra:
     job:

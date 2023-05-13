@@ -190,20 +190,7 @@ class TDMPC:
         G, discount = 0, 1
 
         # Compute q val for bc
-        #q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
-        q_bc = []
-        z_learned_broadcast = z_learned[0].repeat(actions_bc.shape[0],1)
-        for i in range(len(self.model._acs)):
-            if i == 0:
-                q1_val, q2_val = self.model._acs[i].Q(z_bc, actions_bc)
-            else:
-                q1_val, q2_val = self.model._acs[i].Q(z_learned_broadcast, actions_bc)
-            q_bc.append(q1_val)
-            q_bc.append(q2_val)
-        q_bc = torch.stack(q_bc, dim=0)
-        BC_min = torch.min(q_bc, dim=0).values
-        BC_mean = torch.mean(q_bc, dim=0)
-        BC_std = torch.std(q_bc, dim=0)
+        q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
 
         for t in range(horizon):
             z_learned, reward = self.model.next(z_learned, actions_learned[t])
@@ -239,7 +226,7 @@ class TDMPC:
         G_mean = torch.mean(G, dim=0)        
         G_std = torch.std(G, dim=0)
 
-        return BC_min, BC_mean, BC_std, G_min, G_mean, G_std
+        return q_bc, G_min, G_mean, G_std
 
     @torch.no_grad()
     def compute_elite_actions(self, actions, value, num_elites):
@@ -327,14 +314,19 @@ class TDMPC:
                 actions_learned = torch.clamp(actions_learned, -1, 1)
             
             
-            BC_min, BC_mean, BC_std, G_min, G_mean, G_std = self.estimate_value(z_bc=z_bc,
+            value_bc, G_min, G_mean, G_std = self.estimate_value(z_bc=z_bc,
                                                                                 z_learned=z_learned,
                                                                                 actions_bc=actions_bc,
                                                                                 actions_learned=actions_learned,
                                                                                 horizon=horizon)
 
             value_learn = self.cfg.val_min_w*G_min + self.cfg.val_mean_w*G_mean + self.cfg.val_std_w*G_std
-            value_bc = self.cfg.val_min_w*BC_min + self.cfg.val_mean_w*BC_mean + self.cfg.val_std_w*BC_std
+            
+            #val_learn_weight = torch.pow(torch.maximum(G_std - self.val_std_mean,0),2)
+            #val_learn_weight = -self.cfg.val_std_w * val_learn_weight / self.val_std_std
+            #val_learn_weight = torch.exp(val_learn_weight)
+            #value_learn = val_learn_weight*G_mean
+
             value_bc = value_bc.nan_to_num(-self.cfg.episode_length).squeeze(1)
             value_learn = value_learn.nan_to_num(-self.cfg.episode_length).squeeze(1)
 
@@ -376,8 +368,16 @@ class TDMPC:
                 mean_learned = self.cfg.momentum * mean_learned + (1 - self.cfg.momentum) * _mean_learned
             std_learned = _std_learned
 
-        all_actions = torch.cat([actions_bc, actions_learned[0]], dim=0)
-        all_value = torch.cat([value_bc, value_learn], dim=0)
+        model_act_prob = h.linear_schedule(self.cfg.mix_schedule, step)
+        if np.random.rand() > model_act_prob:
+            all_actions = actions_bc
+            all_value = value_bc
+        else:
+            all_actions = actions_learned[0]
+            all_value = value_learn
+        #all_actions = torch.cat([actions_bc, actions_learned[0]], dim=0)
+        #all_value = torch.cat([value_bc, value_learn], dim=0)
+        
         elite_actions, score = self.compute_elite_actions(all_actions, all_value, self.cfg.num_elites)
 
         out_mean = torch.sum(score.unsqueeze(1) * elite_actions, dim=0) / (
@@ -396,10 +396,7 @@ class TDMPC:
         score = score.cpu().numpy()
         action = elite_actions[np.random.choice(np.arange(score.shape[0]), p=score)]
 
-        q_stats = {'max_frozen_min': BC_min.max().item(),
-                   'max_frozen_mean': BC_mean.max().item(),
-                   'max_frozen_std': BC_std.max().item(),
-                   'min_frozen_std': BC_std.min().item(),
+        q_stats = {'max_q_bc': value_bc.max().item(),
                    'max_model_min': G_min.max().item(),
                    'max_model_mean': G_mean.max().item(),
                    'max_model_std': G_std.max().item(),
@@ -499,11 +496,11 @@ class TDMPC:
             self.model_target._acs[i].track_q_grad(True)        
 
     def unfreeze_final(self):
-        #self.model.track_learn_encoder_grad(True)
+        self.model.track_learn_encoder_grad(True)
         for i in range(1,len(self.model._acs)):
             self.model._acs[i].track_pi_grad(True)          
 
-        #self.model_target.track_learn_encoder_grad(True)
+        self.model_target.track_learn_encoder_grad(True)
         for i in range(1,len(self.model_target._acs)):
             self.model_target._acs[i].track_pi_grad(True)   
 

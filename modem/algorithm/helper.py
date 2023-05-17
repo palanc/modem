@@ -461,7 +461,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
                                         qv[:,:17],
                                         grasp_pos,
                                         grasp_rot], axis=1)
-            elif not cfg.real_robot:      
+            elif not cfg.real_robot or cfg.task=='franka-FrankaBinPickRealRP05_v2d':      
                 state = np.concatenate([qp[:,:8],
                                         qv[:,:8],
                                         grasp_pos,
@@ -524,7 +524,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
             rewards = torch.zeros((cfg.episode_length,), 
                                     dtype=torch.float32, 
                                     device=state.device)-1.0            
-            if franka_task == FrankaTask.BinPick:
+            if franka_task == FrankaTask.BinPick or franka_task==FrankaTask.BinReorient:
                 if successful_trial:
                     rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], None)                
             elif franka_task == FrankaTask.BinPush or franka_task == FrankaTask.PlanarPush: 

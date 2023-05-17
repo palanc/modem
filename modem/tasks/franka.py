@@ -11,9 +11,10 @@ import matplotlib.pyplot as plt
 from enum import Enum 
 from robohive.envs.arms.bin_pick_v0 import BinPickPolicy
 from robohive.utils.quat_math import mat2quat
-from modem.utils.move_utils import update_grasps, check_grasp_success, open_gripper
+from modem.utils.move_utils import update_grasps, check_grasp_success, open_gripper, check_reorient_success
 from modem.utils.color_threshold import ColorThreshold
 import time
+from pathlib import Path
 
 class FrankaTask(Enum):
     BinPick=1
@@ -116,7 +117,7 @@ class FrankaWrapper(gym.Wrapper):
                 assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+17], qv[:17]).all())
                 assert(np.isclose(obs[qp.shape[0]+qv.shape[0]:qp.shape[0]+qv.shape[0]+3], grasp_pos).all())
                 assert(np.isclose(obs[qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]:qp.shape[0]+qv.shape[0]+grasp_pos.shape[0]+4],grasp_rot).all())                
-            elif self.cfg.real_robot:
+            elif self.cfg.real_robot and self.cfg.task != 'franka-FrankaBinPickRealRP05_v2d':
                 manual = np.concatenate([qp[:9], qv[:9], grasp_pos,grasp_rot])
                 assert(np.isclose(obs[:9], qp[:9]).all())
                 assert(np.isclose(obs[qp.shape[0]:qp.shape[0]+9], qv[:9]).all())
@@ -226,8 +227,8 @@ class FrankaWrapper(gym.Wrapper):
             assert(action.shape[0] == 15)
             aug_action = np.zeros(16, dtype=action.dtype)
             aug_action[:3] = action[:3]
-            aug_action[3] = 1.0
-            aug_action[4] = -1.0
+            aug_action[3] = 1.0+0.05*np.random.normal()
+            aug_action[4] = -1.0+0.05*np.random.normal()
             aug_action[5] = np.arctan2(action[4], action[3])
             aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
             aug_action[6:] = action[5:]
@@ -303,11 +304,14 @@ class FrankaWrapper(gym.Wrapper):
         success = False
         rewards = None
         if self.cfg.task.startswith('franka-FrankaBinPick'):
-            _, latest_img, success, _, _ = check_grasp_success(env=self.env, obs=None, force_img=eval_mode or (self.consec_train_fails>=self.RESET_PI_THRESH-1))
+            _, latest_img, success, _, _ = check_grasp_success(env=self.env, 
+                                                               obs=None, 
+                                                               force_img=eval_mode or (self.consec_train_fails>=self.RESET_PI_THRESH-1),
+                                                               force_check=(self.cfg.task == 'franka-FrankaBinPickRealRP05_v2d'))
             if success:
                 rewards = recompute_real_rwd(self.cfg, states)
                 self.consec_train_fails = 0
-            else:
+            elif self.cfg.task != 'franka-FrankaBinPickRealRP05_v2d':
                 if not eval_mode:
                     self.consec_train_fails += 1
                 
@@ -353,13 +357,21 @@ class FrankaWrapper(gym.Wrapper):
         elif self.cfg.task.startswith('franka-FrankaPlanarPush') or self.cfg.task.startswith('franka-FrankaBinPush'):
             rewards = recompute_real_rwd(self.cfg, states, obs, self.col_thresh)
             success = torch.sum(rewards).item() >= -1*self.cfg.episode_length+4.999
+        elif self.cfg.task.startswith('franka-FrankaBinReorient'):
+            output_dir = Path(self.cfg.logging_dir) / "logs" / self.cfg.task / self.cfg.exp_name / str(self.cfg.seed)
+            output_dir = str(output_dir)
+            reorient_success, reset_img = check_reorient_success(self.env.unwrapped, obs=None,out_dir=output_dir)
+            success = reorient_success
+            rewards = recompute_real_rwd(self.cfg, states)
         else:
             raise NotImplementedError()
         
         return success, rewards
 
 def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
-    assert(states.shape[1] == 25)
+    assert(states.shape[1] == 25 or 
+           (cfg.task == 'franka-FrankaBinPickRealRP05_v2d' and states.shape[1] == 23) or
+           (cfg.task == 'franka-FrankaBinReorientReal_v2d' and states.shape[1] == 41))
     rewards = torch.zeros(
         (cfg.episode_length,), dtype=torch.float32, device=states.device
     )-1.0
@@ -380,6 +392,12 @@ def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
             if img_success:
                 rewards[t-1] = 0
         print('Ep reward: {}'.format(torch.sum(rewards).item()))
+    elif cfg.task.startswith('franka-FrankaBinReorient'):
+        for i in reversed(range(cfg.episode_length)):
+            if states[i+1, -5] > 1.0 and states[i+1, 12] > 1.0:
+                rewards[i] = 0.0
+            else:
+                break        
     else:
         raise NotImplementedError()
 

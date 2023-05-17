@@ -54,11 +54,16 @@ def cart_move(action, env):
             break
         last_pos = pos
 
-def move_joint_config(env, config):
+def move_joint_config(env, config, jnt_vel=None, slow_jnt_vel=None):
     last_pos = None
 
     jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
     jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]
+
+    if jnt_vel is not None or slow_jnt_vel is not None:
+        orig_jnt_vel = env.unwrapped.vel_limits['jnt'].copy()
+        orig_slow_jnt_vel = env.unwrapped.vel_limits['jnt_slow'].copy()
+        env.unwrapped.set_joint_vel(jnt_vel, slow_jnt_vel)
 
     config = 2*(((config-jnt_low)/(np.abs(jnt_high-jnt_low)+1e-8))-0.5)
 
@@ -70,6 +75,11 @@ def move_joint_config(env, config):
         if last_pos is not None and not is_moving(last_pos, pos, 0.0001):
             break
         last_pos = pos
+
+    if jnt_vel is not None or slow_jnt_vel is not None:
+        orig_jnt_vel = env.unwrapped.vel_limits['jnt'].copy()
+        orig_slow_jnt_vel = env.unwrapped.vel_limits['jnt_slow'].copy()
+        env.unwrapped.set_joint_vel(orig_jnt_vel, orig_slow_jnt_vel)
 
     return obs, env_info
 
@@ -133,12 +143,12 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
     OUT_OF_WAY_HAND = np.array([0.0,-0.75,0.0,-0.2,
                                 0.0,-0.75,-0.2,
                                 0.0,-0.75,-0.2])
-    KNOCK_HAND = np.array([0.0,1.5,0.0,np.pi/2,
-                                0.75,1.5,-0.2,
-                                -0.75,1.5,-0.2])
-    FLIP_HAND = np.array([0.0,1.5,0.0,np.pi/2,
-                                0.75,2.0,0.75,
-                                -0.75,2.0,0.75])
+    KNOCK_HAND = np.array([-0.57,1.5,0.0,np.pi/2,
+                                0.0,1.5,-0.2,
+                                -0.0,1.5,-0.2])
+    FLIP_HAND = np.array([-0.57,1.5,0.0,np.pi/2,
+                                0.0,2.0,0.75,
+                                -0.0,2.0,0.75])
     DRAG_HAND = np.array([0.57,1.5,1.55,-np.pi/2+1.3, # Thumb
                             -0.75,1.5,0.0,     # Middle
                             -0.0,1.5,0.2])    # Pinky
@@ -169,8 +179,10 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
 
     reorient_success = None
     knocked_over = False
-    goal_x = 0.58
+    goal_x = 0.6#0.58
     goal_y = 0.0
+    knock_goal_x = 0.45
+    knock_goal_y = 0.0
     while not knocked_over:
 
         yaw = quat2euler(obs_dict['grasp_rot'][0, 0, :])[-1]
@@ -224,24 +236,24 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
         knock_x = X_SCALE * (PIX_FROM_TOP - (y_top)) + DIST_FROM_BASE
         knock_y = Y_SCALE * (PIX_FROM_LEFT - (x_top)) + DIST_FROM_CENTER            
         
-        knock_dir = np.array([goal_x-knock_x, goal_y-knock_y])
+        knock_dir = np.array([knock_goal_x-knock_x, knock_goal_y-knock_y])
         knock_dir = knock_dir / np.linalg.norm(knock_dir)
-        knock_yaw = np.arctan2(knock_dir[0], knock_dir[1])
-        preknock_action = np.concatenate([[knock_x, knock_y, 1.09, 3.14, 0.0, knock_yaw],
+        knock_yaw = -np.pi/4+np.random.uniform(-np.pi/4, np.pi/4.0)#np.arctan2(knock_dir[0], knock_dir[1])
+        preknock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
                                           KNOCK_HAND])
         move_to(preknock_action, env)
 
         knock_x += env.sim.data.site_xpos[env.grasp_sid][0] - env.sim.data.site_xpos[env.hand_sid][0]
         knock_y += env.sim.data.site_xpos[env.grasp_sid][1] - env.sim.data.site_xpos[env.hand_sid][1]
 
-        preknock_action = np.concatenate([[knock_x, knock_y, 1.09, 3.14, 0.0, knock_yaw],
+        preknock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
                                            KNOCK_HAND])
         
         move_to(preknock_action, env)        
 
-        #knock_x = knock_x + 0.15*knock_dir[0]
-        #knock_y = knock_y + 0.15*knock_dir[1]
-        knock_action = np.concatenate([[knock_x, knock_y, 1.09, 3.14, 0.0, knock_yaw],
+        knock_x = knock_x + 0.15*knock_dir[0]
+        knock_y = knock_y + 0.15*knock_dir[1]
+        knock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
                                            FLIP_HAND])
         move_to(knock_action, env)                                               
  
@@ -338,7 +350,7 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
 
     return reorient_success, reset_img
 
-def check_grasp_success(env, obs, force_img=False, just_drop=False):
+def check_grasp_success(env, obs, force_img=False, just_drop=False, force_check=False):
     jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
     jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]    
     
@@ -348,17 +360,18 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
     
     obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
     if obs_dict['qp'][0,0,7] < MAX_GRIPPER_OPEN:
-        failed_grasp = True
+        failed_grasp = True and not force_check
         print('Policy didnt close gripper')
-        if not force_img:
+        if not force_img and not force_check:
             return None, None, False, None, None
 
     if obs_dict['grasp_pos'][0,0,2] < 1.0:
-        failed_grasp = True
+        failed_grasp = True and not force_check
         print('Policy didnt lift gripper')
-        obs, env_info = open_gripper(env, obs)
-        obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
-        if not force_img:
+        if not force_check:
+            obs, env_info = open_gripper(env, obs)
+            obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+        if not force_img and not force_check:
             return None, None, False, None, None
 
     print('moving up')
@@ -389,10 +402,11 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
     mean_diff = 0.0
 
     if (grip_width < MAX_GRIPPER_OPEN or grip_width > MIN_GRIPPER_CLOSED):
-        failed_grasp = True
-        obs, env_info = open_gripper(env, obs)
-        obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
-        if not force_img:
+        failed_grasp = True and not force_check
+        if not force_check:
+            obs, env_info = open_gripper(env, obs)
+            obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+        if not force_img and not force_check:
             return None, None, False, None, None
 
     pre_drop_img = None

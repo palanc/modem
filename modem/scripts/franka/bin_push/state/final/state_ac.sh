@@ -1,19 +1,20 @@
 #!/bin/bash
+
 <<test
 python train.py \
     task=franka-FrankaBinPick  \
-    exp_name=test-ensemble-all \
+    exp_name=test-final-state-ac \
     discount=0.95 \
     train_steps=200000 \
-    seed=6 \
-    demos=100 \
+    seed=1 \
+    demos=3 \
     img_size=0 \
     lr=1e-3 \
     batch_size=512 \
     episode_length=100 \
     camera_views=[left_cam,right_cam] \
     action_repeat=1 \
-    seed_steps=100 \
+    seed_steps=300 \
     eval_episodes=3 \
     plan_policy=true \
     bc_rollout=true \
@@ -31,19 +32,19 @@ python train.py \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base'
 test
 
-python train.py   -m \
-    task=franka-FrankaBinPick  \
-    exp_name=bin_pick_state-no-ensemble-long-delay \
+python train.py  -m \
+    task=franka-FrankaBinPush  \
+    exp_name=bin_push_state-final-ac \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
     seed=1,2,3,4,5 \
-    demos=100 \
+    demos=10 \
     img_size=0 \
     lr=1e-3 \
     batch_size=512 \
-    episode_length=100 \
-    camera_views=[left_cam,right_cam] \
+    episode_length=50 \
+    camera_views=[top_cam] \
     action_repeat=1 \
     plan_policy=true \
     bc_rollout=true \
@@ -52,7 +53,7 @@ python train.py   -m \
     val_min_w=1.0 \
     val_mean_w=0.0 \
     val_std_w=0.00 \
-    mix_schedule='"linear(0.0,1.0,25000,125000)"' \
+    mix_schedule='"linear(0.0,1.0,5000,105000)"' \
     mixture_coef=1.0\
     save_freq=2500\
     eval_freq=2500\

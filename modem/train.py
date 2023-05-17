@@ -29,7 +29,7 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, traj_plot, q_plot, policy_rollout=False):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
 
     episode_states = []
@@ -57,7 +57,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, q_plot, policy_r
             action, q_stat = agent.plan(obs, env.state, 
                                         eval_mode=True, 
                                         step=(0 if policy_rollout else step), 
-                                        t0=t == 0)   
+                                        t=t)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
@@ -90,10 +90,16 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, q_plot, policy_r
         if video:
             video.save(env_step)
 
+    ep_uncertainty_weight = 0.0
+    uncertainty_count = 0
     if len(ep_q_stats) > 0 and q_plot is not None:
         print('LOGGING Q VALS')
         q_plot.log_q_vals(env_step, ep_q_stats, ep_q_success)
-
+        for i in range(len(ep_q_stats)):
+            for j in range(len(ep_q_stats[i])):
+                ep_uncertainty_weight += ep_q_stats[i][j]['uncertainty_weight']
+                uncertainty_count += 1
+        ep_uncertainty_weight = ep_uncertainty_weight/uncertainty_count
     if traj_plot:
         if not cfg.real_robot:
             rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, agent)
@@ -102,7 +108,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, q_plot, policy_r
         traj_plot.save_traj(rollout_states, rollout_actions, 
                             episode_states, episode_actions, 
                             env_step)
-    return np.nanmean(episode_rewards), np.nanmean(episode_successes)
+    return np.nanmean(episode_rewards), np.nanmean(episode_successes), ep_uncertainty_weight
 
 def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
     model_fp = None
@@ -180,13 +186,6 @@ def train(cfg: dict):
         agent.model.eval()
         agent.model_target.eval()      
 
-    assert(cfg.final_unfreeze > 0)
-    if model_fp is not None: 
-        if start_step > cfg.seed_steps:
-            agent.unfreeze_online()
-        if start_step > cfg.final_unfreeze:
-            agent.unfreeze_final()
-
 
     # Load past episodes
 
@@ -236,11 +235,16 @@ def train(cfg: dict):
 
     agent.freeze_bc()
 
+    if model_fp is not None: 
+        if start_step > cfg.seed_steps + 2500:
+            agent.unfreeze_online()
+
     if cfg.bc_only:
         L.save_model(agent, 0)
         print(colored(f'Model has been checkpointed', 'yellow', attrs=['bold']))
                         
-        eval_rew, eval_succ = evaluate(env, agent, cfg, 0, 0, L.video, L.traj_plot, L.q_plot, policy_rollout=True)
+        #eval_rew, eval_succ, _ = evaluate(env, agent, cfg, 0, 0, L.video, L.traj_plot, L.q_plot, policy_rollout=True)
+        eval_rew, eval_succ, _ = evaluate(env, agent, cfg, 0, 0, L.video,  policy_rollout=True)
         common_metrics = {"env_step": 0, "episode_reward": eval_rew, "episode_success": eval_succ}
         L.log(common_metrics, category="eval")
         print('Eval reward: {}, Eval success: {}'.format(eval_rew, eval_succ))
@@ -259,11 +263,18 @@ def train(cfg: dict):
         trace = Trace('rollout'+f'{(step//cfg.episode_length):010d}')
         trace.create_group('Trial0')
 
+        t = 0
+        ep_q_std = []
+        ep_uncertainty_weight = 0.0
         while not episode.done:
-            action, _ = agent.plan(obs, env.state, step=step, t0=episode.first) 
+            action, q_stats = agent.plan(obs, env.state, step=step, t=t) 
             trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
             obs, reward, done, info = env.step(action.cpu().numpy())
             episode += (obs, env.state, action, reward, done)
+            if q_stats is not None:
+                ep_q_std.append(q_stats['model_std_topk'])
+                ep_uncertainty_weight += q_stats['uncertainty_weight']
+            t+=1
 
         trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
         assert (
@@ -281,6 +292,13 @@ def train(cfg: dict):
                 print('Ep reward {}'.format(episode.cumulative_reward))
         else:
             task_success = np.sum(episode.cumulative_reward) >= 5
+
+        if len(ep_q_std) > 0:
+            if task_success:
+                agent.succ_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+            else:
+                agent.fail_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+
         for success_idx in range(cfg.episode_length+1):
             trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
         trace_fn = trace.name + '.pickle'
@@ -324,9 +342,6 @@ def train(cfg: dict):
 
         buffer += episode
 
-        if step == cfg.final_unfreeze:
-            print('***********FINAL UNFREEZE *******************')
-            agent.unfreeze_final()
 
         # Update model
         train_metrics = {}
@@ -346,7 +361,7 @@ def train(cfg: dict):
             else:
                 num_updates = cfg.episode_length
             for i in range(num_updates):
-                train_metrics.update(agent.update(buffer, step + i, demo_buffer, train_pi=(step >=cfg.final_unfreeze)))
+                train_metrics.update(agent.update(buffer, step + i, demo_buffer, train_pi=(step >cfg.seed_steps)))
             if step == cfg.seed_steps:
                 agent.unfreeze_online()
                 print(colored("Phase 3: interactive learning", "blue", attrs=["bold"]))
@@ -361,6 +376,7 @@ def train(cfg: dict):
             "total_time": time.time() - start_time,
             "episode_reward": episode.cumulative_reward,
             "episode_success": info.get("success", 0),
+            'uncertainty_weight': ep_uncertainty_weight / cfg.episode_length
         }
         train_metrics.update(common_metrics)
         L.log(train_metrics, category="train")
@@ -372,11 +388,12 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
-            eval_rew, eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
+            #eval_rew, eval_succ, uncertainty_weight = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
+            eval_rew, eval_succ, uncertainty_weight = evaluate(env, agent, cfg, step, env_step, L.video)
             print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             
             common_metrics.update(
-                {"episode_reward": eval_rew, "episode_success": eval_succ}
+                {"episode_reward": eval_rew, "episode_success": eval_succ, 'uncertainty_weight': uncertainty_weight}
             )
             L.log(common_metrics, category="eval")
 

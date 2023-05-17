@@ -112,8 +112,8 @@ class QPlot:
         max_frozen = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
         max_model_min = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
         max_model_mean = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
-        max_model_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
-        min_model_std = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        model_std_best = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
+        model_std_topk = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))
         
         fail_idx = 0
         success_idx = 0
@@ -124,8 +124,8 @@ class QPlot:
                 max_frozen[f_idx][s_idx][j] = q_stats[i][j]['max_q_bc']
                 max_model_min[f_idx][s_idx][j] = q_stats[i][j]['max_model_min']
                 max_model_mean[f_idx][s_idx][j] = q_stats[i][j]['max_model_mean']
-                max_model_std[f_idx][s_idx][j] = q_stats[i][j]['max_model_std']
-                min_model_std[f_idx][s_idx][j] = q_stats[i][j]['min_model_std']                     
+                model_std_best[f_idx][s_idx][j] = q_stats[i][j]['model_std_best']
+                model_std_topk[f_idx][s_idx][j] = q_stats[i][j]['model_std_topk']                     
             if q_success[i]:
                 success_idx += 1
             else:
@@ -146,11 +146,11 @@ class QPlot:
         self._draw_q_plot(max_model_mean, axs[0,1],
                           'max(Q_mean)', ('model_fail','model_success'), ((1,0,0),(1,0,1)))  
 
-        self._draw_q_plot(max_model_std, axs[1,0],
-                          'max(Q_std)', ('model_fail','model_success'), ((1,0,0),(1,0,1)))
+        self._draw_q_plot(model_std_best, axs[1,0],
+                          'Q_std[max(Q).index[0]]', ('model_fail','model_success'), ((1,0,0),(1,0,1)))
 
-        self._draw_q_plot(min_model_std, axs[1,1],
-                          'min(Q_std)', ('model_fail','model_success'), ((1,0,0),(1,0,1)))
+        self._draw_q_plot(model_std_topk, axs[1,1],
+                          'Q_std[max(Q).index[0..k]]', ('model_fail','model_success'), ((1,0,0),(1,0,1)))
 
         self._wandb.log({'Q Plots': self._wandb.Image(plt)}, step=step, commit=False)    
 

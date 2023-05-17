@@ -9,6 +9,7 @@ from copy import deepcopy
 import algorithm.helper as h
 from tqdm import tqdm
 from algorithm.helper import gather_paths_parallel
+from collections import deque
 
 class AC(nn.Module):
     def __init__(self, cfg):
@@ -152,6 +153,10 @@ class TDMPC:
         self.model.eval()
         self.model_target.eval()
         self.batch_size = cfg.batch_size
+        
+        self.succ_q_std = deque([], maxlen=30)
+        self.fail_q_std = deque([], maxlen=30)
+
         print(
             "Total parameters: {:,}".format(
                 sum(p.numel() for p in self.model.parameters())
@@ -189,42 +194,49 @@ class TDMPC:
         """Estimate value of a trajectory starting at latent state z and executing given actions."""
         G, discount = 0, 1
 
-        # Compute q val for bc
-        q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
+        if actions_bc is not None:
+            # Compute q val for bc
+            q_bc = torch.min(*self.model._acs[0].Q(z_bc, actions_bc))
+        else:
+            q_bc = None
 
-        for t in range(horizon):
-            z_learned, reward = self.model.next(z_learned, actions_learned[t])
-            G += discount * reward
-            discount *= self.cfg.discount
 
-        # Get learned actions
-        end_actions_learned = []
-        for i in range(1,len(self.model._acs)):
-            end_actions_learned.append(self.model._acs[i].pi(z_learned, self.cfg.min_std))
-        
-        assert(len(end_actions_learned)+1 == len(self.model._acs))
-        q_learned = []
-        for i in range(1,len(self.model._acs)):
-            q1_max, q2_max = None, None
-            for j in range(0,len(end_actions_learned)):
-                if i == j+1:
-                    continue
-                q1_val, q2_val = self.model._acs[i].Q(z_learned, end_actions_learned[j])
-                if q1_max is None:
-                    q1_max = q1_val
-                else:
-                    q1_max = torch.max(q1_max, q1_val)
-                if q2_max is None:
-                    q2_max = q2_val
-                else:
-                    q2_max = torch.max(q2_max, q2_val)
-            q_learned.append(q1_max)
-            q_learned.append(q2_max)
-        q_learned = torch.stack(q_learned, dim=0)
-        G = G + discount*q_learned
-        G_min = torch.min(G, dim=0).values
-        G_mean = torch.mean(G, dim=0)        
-        G_std = torch.std(G, dim=0)
+        if actions_learned is not None:
+            for t in range(horizon):
+                z_learned, reward = self.model.next(z_learned, actions_learned[t])
+                G += discount * reward
+                discount *= self.cfg.discount
+
+            # Get learned actions
+            end_actions_learned = []
+            for i in range(1,len(self.model._acs)):
+                end_actions_learned.append(self.model._acs[i].pi(z_learned, self.cfg.min_std))
+            
+            assert(len(end_actions_learned)+1 == len(self.model._acs))
+            q_learned = []
+            for i in range(1,len(self.model._acs)):
+                q1_max, q2_max = None, None
+                for j in range(0,len(end_actions_learned)):
+                    if i == j+1 and self.cfg.ensemble_size > 2:
+                        continue
+                    q1_val, q2_val = self.model._acs[i].Q(z_learned, end_actions_learned[j])
+                    if q1_max is None:
+                        q1_max = q1_val
+                    else:
+                        q1_max = torch.max(q1_max, q1_val)
+                    if q2_max is None:
+                        q2_max = q2_val
+                    else:
+                        q2_max = torch.max(q2_max, q2_val)
+                q_learned.append(q1_max)
+                q_learned.append(q2_max)
+            q_learned = torch.stack(q_learned, dim=0)
+            G = G + discount*q_learned
+            G_min = torch.min(G, dim=0).values
+            G_mean = torch.mean(G, dim=0)        
+            G_std = torch.std(G, dim=0)
+        else:
+            G_min, G_mean, G_std = None, None, None
 
         return q_bc, G_min, G_mean, G_std
 
@@ -248,13 +260,13 @@ class TDMPC:
         return elite_actions, score
 
     @torch.no_grad()
-    def plan(self, obs, state, eval_mode=False, step=None, t0=True):
+    def plan(self, obs, state, eval_mode=False, step=None, t=0):
         """
         Plan next action using TD-MPC inference.
         obs: raw input observation.
         eval_mode: uniform sampling and action noise is disabled during evaluation.
         step: current time step. determines e.g. planning horizon.
-        t0: whether current step is the first step of an episode.
+        t: current time step.
         """
         obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(
@@ -272,30 +284,38 @@ class TDMPC:
         # Encode observation only once
         z_bc, z_learned = self.model.h(obs, state, compute_learned=True)
         
-        # Compute bc actions
-        num_learn_traj = int(self.cfg.num_samples*self.cfg.mixture_coef / (self.cfg.ensemble_size-1))*(self.cfg.ensemble_size-1)
+        model_act_prob = h.linear_schedule(self.cfg.mix_schedule, step)
+        use_model = True
+        if np.random.rand() > model_act_prob:
+            use_model = False
+
+        if use_model:
+            num_learn_traj = int(self.cfg.num_samples*self.cfg.mixture_coef / (self.cfg.ensemble_size-1))*(self.cfg.ensemble_size-1)
+            num_learn_elites = int(self.cfg.num_elites*self.cfg.mixture_coef) 
+        else:
+            num_learn_traj = int(self.cfg.num_samples*(1.0-self.cfg.mixture_coef) / (self.cfg.ensemble_size-1))*(self.cfg.ensemble_size-1)
+            num_learn_elites = int(self.cfg.num_elites*(1.0-self.cfg.mixture_coef))
+        
         num_bc_traj = self.cfg.num_samples-num_learn_traj
-        num_learn_elites = int(self.cfg.num_elites*self.cfg.mixture_coef)
         num_bc_elites = self.cfg.num_elites-num_learn_elites
         traj_per_ac = int(num_learn_traj / (self.cfg.ensemble_size-1))
         assert(num_bc_traj+traj_per_ac*(self.cfg.ensemble_size-1) == self.cfg.num_samples)
-
-            #pi_actions = torch.empty(
-            #    horizon, num_pi_trajs, self.cfg.action_dim, device=self.device
-            #)
-            #z = z_obs.repeat(num_pi_trajs, 1)
-            #for t in range(horizon):
-            #    pi_actions[t] = self.model.pi(z, self.cfg.min_std)
-            #    z, _ = self.model.next(z, pi_actions[t])
         
-        actions_bc = self.model._acs[0].pi(z_bc.repeat(num_bc_traj,1), 
-                                           self.cfg.min_std)
-        actions_learned = torch.empty((horizon, num_learn_traj, self.cfg.action_dim), dtype=torch.float32, device=self.device)
-        for i in range(1,len(self.model._acs)):
-            z = z_learned.repeat(traj_per_ac,1)
-            for t in range(horizon):
-                actions_learned[t, (i-1)*traj_per_ac:i*traj_per_ac] = self.model._acs[i].pi(z, self.cfg.min_std)
-                z, _ = self.model.next(z, actions_learned[t, (i-1)*traj_per_ac:i*traj_per_ac])
+        if num_bc_traj > 0:
+            actions_bc = self.model._acs[0].pi(z_bc.repeat(num_bc_traj,1), 
+                                            self.cfg.min_std)
+        else:
+            actions_bc = None
+
+        if num_learn_traj > 0 :   
+            actions_learned = torch.empty((horizon, num_learn_traj, self.cfg.action_dim), dtype=torch.float32, device=self.device)
+            for i in range(1,len(self.model._acs)):
+                z = z_learned.repeat(traj_per_ac,1)
+                for t in range(horizon):
+                    actions_learned[t, (i-1)*traj_per_ac:i*traj_per_ac] = self.model._acs[i].pi(z, self.cfg.min_std)
+                    z, _ = self.model.next(z, actions_learned[t, (i-1)*traj_per_ac:i*traj_per_ac])
+        else:
+            actions_learned = None
 
         mean_bc = None
         std_bc = self.cfg.min_std * torch.ones(self.cfg.action_dim, device=self.device)
@@ -304,6 +324,7 @@ class TDMPC:
 
         z_bc = z_bc.repeat(num_bc_traj, 1)
         z_learned = z_learned.repeat(num_learn_traj,1)
+        
         # Iterate
         for _ in range(self.cfg.iterations):
             if mean_bc is not None:
@@ -320,56 +341,78 @@ class TDMPC:
                                                                                 actions_learned=actions_learned,
                                                                                 horizon=horizon)
 
-            value_learn = self.cfg.val_min_w*G_min + self.cfg.val_mean_w*G_mean + self.cfg.val_std_w*G_std
+
             
             #val_learn_weight = torch.pow(torch.maximum(G_std - self.val_std_mean,0),2)
             #val_learn_weight = -self.cfg.val_std_w * val_learn_weight / self.val_std_std
             #val_learn_weight = torch.exp(val_learn_weight)
             #value_learn = val_learn_weight*G_mean
-
-            value_bc = value_bc.nan_to_num(-self.cfg.episode_length).squeeze(1)
-            value_learn = value_learn.nan_to_num(-self.cfg.episode_length).squeeze(1)
-
-            elite_actions_bc, score_bc = self.compute_elite_actions(actions_bc, value_bc, num_bc_elites)
-            elite_actions_learn, score_learn = self.compute_elite_actions(actions_learned, value_learn, num_learn_elites)
-            
-            assert(len(score_bc.shape)==1 and score_bc.shape[0] == num_bc_elites)
-            assert(len(score_learn.shape) == 1 and score_learn.shape[0] == num_learn_elites)
-            _mean_bc = torch.sum(score_bc.unsqueeze(1) * elite_actions_bc, dim=0) / (
-                score_bc.sum(0) + 1e-9
-            )
-            _std_bc = torch.sqrt(
-                torch.sum(
-                    score_bc.unsqueeze(1) * (elite_actions_bc - _mean_bc) ** 2,
-                    dim=0,
+            if value_bc is not None:
+                value_bc = value_bc.nan_to_num(-self.cfg.episode_length).squeeze(1)
+                elite_actions_bc, score_bc = self.compute_elite_actions(actions_bc, value_bc, num_bc_elites)
+                assert(len(score_bc.shape)==1 and score_bc.shape[0] == num_bc_elites)
+                _mean_bc = torch.sum(score_bc.unsqueeze(1) * elite_actions_bc, dim=0) / (
+                    score_bc.sum(0) + 1e-9
                 )
-                / (score_bc.sum(0) + 1e-9)
-            )
-            _std_bc = _std_bc.clamp_(0.0, 2)
-
-            _mean_learned = torch.sum(score_learn.unsqueeze(1) * elite_actions_learn, dim=1) / (
-                score_learn.sum(0) + 1e-9
-            )
-            _std_learned = torch.sqrt(
-                torch.sum(
-                    score_learn.unsqueeze(1) * (elite_actions_learn - _mean_learned.unsqueeze(1)) ** 2,
-                    dim=1,
+                _std_bc = torch.sqrt(
+                    torch.sum(
+                        score_bc.unsqueeze(1) * (elite_actions_bc - _mean_bc) ** 2,
+                        dim=0,
+                    )
+                    / (score_bc.sum(0) + 1e-9)
                 )
-                / (score_learn.sum(0) + 1e-9)
-            )
+                _std_bc = _std_bc.clamp_(0.0, 2)
+                if mean_bc is not None:
+                    mean_bc = self.cfg.momentum * mean_bc + (1 - self.cfg.momentum) * _mean_bc
+                else:
+                    mean_bc = _mean_bc
+                std_bc = _std_bc
 
-            if mean_bc is not None:
-                mean_bc = self.cfg.momentum * mean_bc + (1 - self.cfg.momentum) * _mean_bc
-            else:
-                mean_bc = _mean_bc
-            std_bc = _std_bc
+            if G_min is not None:
+                value_learn = self.cfg.val_min_w*G_min + self.cfg.val_mean_w*G_mean + self.cfg.val_std_w*G_std
+                value_learn = value_learn.nan_to_num(-self.cfg.episode_length).squeeze(1)
+                elite_actions_learn, score_learn = self.compute_elite_actions(actions_learned, value_learn, num_learn_elites)
+                assert(len(score_learn.shape) == 1 and score_learn.shape[0] == num_learn_elites)
+                _mean_learned = torch.sum(score_learn.unsqueeze(1) * elite_actions_learn, dim=1) / (
+                    score_learn.sum(0) + 1e-9
+                )
+                _std_learned = torch.sqrt(
+                    torch.sum(
+                        score_learn.unsqueeze(1) * (elite_actions_learn - _mean_learned.unsqueeze(1)) ** 2,
+                        dim=1,
+                    )
+                    / (score_learn.sum(0) + 1e-9)
+                )
 
-            if mean_learned is not None:
-                mean_learned = self.cfg.momentum * mean_learned + (1 - self.cfg.momentum) * _mean_learned
-            std_learned = _std_learned
+                if mean_learned is not None:
+                    mean_learned = self.cfg.momentum * mean_learned + (1 - self.cfg.momentum) * _mean_learned
+                std_learned = _std_learned
 
-        model_act_prob = h.linear_schedule(self.cfg.mix_schedule, step)
-        if np.random.rand() > model_act_prob:
+        #learn_elite_idxs = torch.topk(
+        #    value_learn, self.cfg.num_elites, dim=0
+        #).indices
+        #q_std_best = G_std[learn_elite_idxs[0]].item()
+        #q_std_topk = torch.mean(G_std[learn_elite_idxs]).item()
+
+        '''
+        if self.cfg.uncertainty_weighting and len(self.succ_q_std) >= 2 and len(self.fail_q_std) >= 2:
+            ep_succ_q_std = torch.stack(list(self.succ_q_std), dim=0)[:,t]
+            assert(len(ep_succ_q_std.shape)==1, 'Unexpected ep_succ_q_std shape {}'.format(ep_succ_q_std.shape))
+            success_mean = torch.mean(ep_succ_q_std)
+            success_std = torch.std(ep_succ_q_std)
+            success_w = torch.exp(torch.pow(success_mean-q_std_topk,2)/success_std).item()
+
+            ep_fail_q_std = torch.stack(list(self.fail_q_std), dim=0)[:,t]
+            assert(len(ep_fail_q_std)==1, 'Unexpected ep_fail_q_std shape {}'.format(ep_fail_q_std.shape))
+            fail_mean = torch.mean(ep_fail_q_std)
+            fail_std = torch.std(ep_fail_q_std)
+            fail_w = torch.exp(torch.pow(fail_mean-q_std_topk,2)/fail_std).item()
+
+            uncertainty_weight = success_w / (success_w+fail_w)
+            model_act_prob = uncertainty_weight*model_act_prob
+        '''
+
+        if not use_model:
             all_actions = actions_bc
             all_value = value_bc
         else:
@@ -390,22 +433,23 @@ class TDMPC:
             )
             / (score.sum(0) + 1e-9)
         )
-        out_std = out_std.clamp_(0.0, 2)
+        out_std = out_std.clamp_(self.std, 2)
 
         # Outputs
         score = score.cpu().numpy()
         action = elite_actions[np.random.choice(np.arange(score.shape[0]), p=score)]
 
-        q_stats = {'max_q_bc': value_bc.max().item(),
-                   'max_model_min': G_min.max().item(),
-                   'max_model_mean': G_mean.max().item(),
-                   'max_model_std': G_std.max().item(),
-                   'min_model_std': G_std.min().item(),}
+        #q_stats = {'max_q_bc': value_bc.max().item(),
+        #           'max_model_min': G_min.max().item(),
+        #           'max_model_mean': G_mean.max().item(),
+        #           'model_std_best': q_std_best,
+        #           'model_std_topk': q_std_topk,
+        #           'uncertainty_weight': uncertainty_weight}
 
         if not eval_mode:
             action += out_std * torch.randn(self.cfg.action_dim, device=self.device)
 
-        return action.clamp_(-1, 1), q_stats
+        return action.clamp_(-1, 1), None #q_stats
 
     def eval_batch(self, buffer):
         obs, _, action, _, state, _, _, _ = buffer.sample()
@@ -473,36 +517,34 @@ class TDMPC:
 
         for i in range(len(self.model._acs)):
             self.model._acs[i].track_pi_grad(False)   
-            self.model._acs[i].track_q_grad(False)        
+            #self.model._acs[i].track_q_grad(False)        
         
         self.model_target.track_encoder_grad(False)
         self.model_target.track_learn_encoder_grad(False)
         
         for i in range(len(self.model_target._acs)):
             self.model_target._acs[i].track_pi_grad(False)
-            self.model_target._acs[i].track_q_grad(False)
+            #self.model_target._acs[i].track_q_grad(False)
 
     def unfreeze_online(self):
         #self.model.track_learn_encoder_grad(True)
         #for i in range(1,len(self.model._acs)):
         #    self.model._acs[i].track_pi_grad(True)  
-        for i in range(len(self.model._acs)):
-            self.model._acs[i].track_q_grad(True)  
+        #for i in range(len(self.model._acs)):
+        #    self.model._acs[i].track_q_grad(True)  
 
         #self.model_target.track_learn_encoder_grad(True)
         #for i in range(1,len(self.model_target._acs)):
         #    self.model_target._acs[i].track_pi_grad(True)        
-        for i in range(len(self.model_target._acs)):
-            self.model_target._acs[i].track_q_grad(True)        
-
-    def unfreeze_final(self):
+        #for i in range(len(self.model_target._acs)):
+        #    self.model_target._acs[i].track_q_grad(True)    
         self.model.track_learn_encoder_grad(True)
         for i in range(1,len(self.model._acs)):
             self.model._acs[i].track_pi_grad(True)          
 
         self.model_target.track_learn_encoder_grad(True)
         for i in range(1,len(self.model_target._acs)):
-            self.model_target._acs[i].track_pi_grad(True)   
+            self.model_target._acs[i].track_pi_grad(True)     
 
     def update_pi(self, zs):
         """Update policy using a sequence of latent states."""

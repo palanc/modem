@@ -94,6 +94,9 @@ success_mask_bottom: ???
 success_thresh: ???
 success_uv: ???
 
+finger_noise: 0.0
+seed_train: false
+
 hydra:
     job:
         name: ${exp_name}

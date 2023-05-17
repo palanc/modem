@@ -25,8 +25,8 @@ python train.py  -m \
     val_std_w=-10.0 \
     mix_schedule='"linear(0.0,1.0,7500,107500)"' \
     mixture_coef=1.0\
-    save_freq=2500\
-    eval_freq=2500\
+    save_freq=7500\
+    eval_freq=7500\
     seed_steps=7500 \
     min_std=0.1\
     uncertainty_weighting=false\

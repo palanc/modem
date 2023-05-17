@@ -236,7 +236,7 @@ def train(cfg: dict):
     agent.freeze_bc()
 
     if model_fp is not None: 
-        if start_step > cfg.seed_steps + 2500:
+        if start_step > cfg.seed_steps:
             agent.unfreeze_online()
 
     if cfg.bc_only:

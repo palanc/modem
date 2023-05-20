@@ -16,7 +16,12 @@ python train.py \
     bc_only=true \
     real_robot=true \
     action_repeat=1 \
+    val_min_w=0.0 \
+    val_mean_w=1.0 \
+    val_std_w=-10.00 \
+    mix_schedule='"linear(0.0,1.0,5000,105000)"' \
+    mixture_coef=1.0\
     min_std=0.05\
     logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
     demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
-    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinReorientReal_v2d/bin_reorient_real_bc_100demos/bc_seed' 
+    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinReorientReal_v2d/bin_reorient_ensemble_bc_100demos/bc_seed' 

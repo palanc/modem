@@ -43,6 +43,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
     for i in range(cfg.eval_episodes):
         print('Episode {}'.format(i))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
+        start_time = time.time()
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
         obs_unstacked = [obs[0,-4:-1]]
@@ -69,6 +70,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
             if video:
                 video.record(env)
             t += 1
+        print('Episode length: {}'.format(time.time()-start_time))
         ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
 
         if cfg.real_robot:

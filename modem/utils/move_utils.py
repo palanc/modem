@@ -10,9 +10,12 @@ from matplotlib import pyplot as plt
 
 MAX_GRIPPER_OPEN = 0.0002
 MIN_GRIPPER_CLOSED = 0.8228
-DROP_ZONE = np.array([0.53, 0.0, 1.1])
-# DROP_ZONE = np.array([0.575, 0.0, 1.1]) - better yaw setting
-DROP_ZONE_PERTURB = np.array([0.025, 0.025,0.0])
+#DROP_ZONE = np.array([0.53, 0.0, 1.1])
+#DROP_ZONE_PERTURB = np.array([0.025, 0.025,0.0])
+
+DROP_ZONE = np.array([0.575, 0.0, 1.1])
+DROP_ZONE_PERTURB = np.array([0.1, 0.15,0.0])
+
 OUT_OF_WAY = np.array([0.3438, -0.9361,  0.0876, -2.8211,  0.0749,  0.5144, -1.57])
 
 PIX_FROM_LEFT = 73
@@ -468,7 +471,8 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
 
         drop_pos = obs_dict['grasp_pos'][0,0]
 
-        drop_x = int(PIX_FROM_LEFT + (drop_pos[1]+DIST_FROM_CENTER)/Y_SCALE)
+        #drop_x = int(PIX_FROM_LEFT + (drop_pos[1]+DIST_FROM_CENTER)/Y_SCALE)
+        drop_x = int(PIX_FROM_LEFT + (DIST_FROM_CENTER-drop_pos[1])/Y_SCALE)
         drop_y = int(PIX_FROM_TOP + (DIST_FROM_BASE-drop_pos[0])/X_SCALE)
 
         print('drop_pos x: {}, drop_pos y: {}'.format(drop_zone_pos[0], drop_zone_pos[1]))
@@ -496,7 +500,8 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
     if pre_drop_img is not None and latest_img is not None and success_mask is not None:
         post_drop_img = cv2.bitwise_and(latest_img, success_mask)
         mean_diff = np.mean(np.abs(post_drop_img.astype(float)-pre_drop_img.astype(float)))
-        print('Mean img diff: {}'.format(mean_diff))    
+        print('Mean img diff: {}'.format(mean_diff))     
+
     else:
         mean_diff =  0.0
 

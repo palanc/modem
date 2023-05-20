@@ -70,7 +70,7 @@ class FrankaWrapper(gym.Wrapper):
 
                 self.consec_train_fails = 0
                 self.RESET_PI_THRESH = 1
-                self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed)
+                self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed, is_reset_policy=True)
             elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
                 self.col_thresh = ColorThreshold(cam_name=self.camera_names[0], 
                                                 left_crop=self.cfg.success_mask_left, 
@@ -218,8 +218,8 @@ class FrankaWrapper(gym.Wrapper):
             assert(action.shape[0] == 6)
             aug_action = np.zeros(7, dtype=action.dtype)
             aug_action[:3] = action[:3]
-            aug_action[3] = 1.0
-            aug_action[4] = -1.0
+            aug_action[3] = 1.0+0.1*np.random.normal()
+            aug_action[4] = -1.0+0.1*np.random.normal()
             aug_action[5] = np.arctan2(action[4], action[3])
             aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
             aug_action[6] = 2*(int(action[5]>0.0)-0.5)
@@ -321,8 +321,13 @@ class FrankaWrapper(gym.Wrapper):
                     while(not reset_success):
                             
                         while(len(grasp_centers) <= 0):
-                            grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                                                                                    out_dir=self.cfg.logging_dir+'/debug')
+                            #grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
+                            #                                                        out_dir=self.cfg.logging_dir+'/debug')
+                            grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
+                                                                                    out_dir=self.cfg.logging_dir+'/debug',
+                                                                                    min_pixels=100,
+                                                                                    luv_thresh=True,
+                                                                                    limit_yaw=True)                                                                                     
                             if len(grasp_centers) <= 0:
                                 input('Block not detected, enter to continue')
                                 print('Taking new block image')

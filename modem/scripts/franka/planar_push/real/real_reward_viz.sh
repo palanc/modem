@@ -30,5 +30,5 @@ python reward_viz.py \
     success_mask_top=105 \
     success_mask_bottom=145 \
     success_thresh=0.2 \
-    success_uv=[0,0.55] \
+    success_uv=[-0.1,0.55] \
     hydra/launcher=local

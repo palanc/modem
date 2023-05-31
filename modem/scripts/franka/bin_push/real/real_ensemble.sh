@@ -46,9 +46,10 @@ test
 python train.py \
     task=franka-FrankaBinPushReal_v2d  \
     exp_name=real_bin_push_ensemble \
+    iterations=1\
     discount=0.95 \
     train_steps=100000 \
-    seed=1 \
+    seed=4 \
     demos=10 \
     img_size=224 \
     lr=3e-4 \

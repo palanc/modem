@@ -116,7 +116,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
         
         rollouts += 1
 
-        mean_diff, new_img, grasp_success, pre_drop_img, post_drop_img = check_grasp_success(env, obs, 
+        mean_diff, new_img, grasp_success, pre_drop_img, post_drop_img, _ = check_grasp_success(env, obs, 
                                                                                             force_img=force_check or grasp_centers is None or len(grasp_centers) <= 0 )
         
         if new_img is not None:

@@ -2,11 +2,11 @@
 
 python eval_chkpts.py \
     task=franka-FrankaBinPushReal_v2d  \
-    exp_name=real_bin_push_100_demos_eval \
+    exp_name=real_bin_push_ensemble-eval \
     discount=0.95 \
     train_steps=100000 \
-    seed=1 \
-    demos=100 \
+    seed=2 \
+    demos=10 \
     img_size=224 \
     lr=3e-4 \
     batch_size=64 \
@@ -23,7 +23,6 @@ python eval_chkpts.py \
     seed_steps=5000 \
     logging_dir='/mnt/raid5/data/plancaster/robohive_base' \
     demo_dir='/mnt/raid5/data/plancaster/robohive_base' \
-    bc_model_fp='/mnt/raid5/data/plancaster/robohive_base/models/franka-FrankaBinPushReal_v2d/bin_push_real_bc_100demos/bc_seed' \
     eval_freq=5000\
     success_mask_left=108 \
     success_mask_right=122 \
@@ -31,4 +30,11 @@ python eval_chkpts.py \
     success_mask_bottom=143 \
     success_thresh=0.5 \
     success_uv=[-52,68] \
-    eval_episodes=1000
+    ensemble_size=6 \
+    val_min_w=0.0 \
+    val_mean_w=1.0 \
+    val_std_w=-10.00 \
+    mix_schedule='"linear(0.0,1.0,5000,105000)"' \
+    mixture_coef=1.0\
+    min_std=0.1\
+    uncertainty_weighting=false

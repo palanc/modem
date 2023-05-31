@@ -29,12 +29,8 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 
-def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=False,rollout_agent=None,q_pol_agent=None):
+def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
-    if rollout_agent is None:
-        rollout_agent = agent
-    if q_pol_agent is None:
-        q_pol_agent = agent
 
     episode_states = []
     episode_actions = []
@@ -42,46 +38,52 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
     episode_successes = []
     episode_start_states = []
 
-    for i in range(cfg.eval_episodes):
-        print('Episode {}'.format(i))
+    ep_q_stats = []
+    ep_q_success = []
+    #for i in range(cfg.eval_episodes):
+    ep_count = 0
+    while ep_count < cfg.eval_episodes:
+        print('Episode {}'.format(ep_count))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
+        start_time = time.time()
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
         obs_unstacked = [obs[0,-4:-1]]
         actions = []
+        q_stats = []
         if video:
             if cfg.real_robot:
-                video.init(env, enabled=(i < 5))
+                video.init(env, enabled=(ep_count < 5))
             else:
-                video.init(env, enabled=(i == 0))
-        plan_step = step
-        planner = agent.plan
-        while not done:
-            if policy_rollout:
-                plan_step = 0
-            
-            if cfg.plan_policy:
-                horizon = int(min(cfg.horizon, linear_schedule(cfg.horizon_schedule, step)))
-                mean = rollout_agent.rollout_actions(obs, env.state, horizon)
-                std = cfg.min_std* torch.ones(horizon, cfg.action_dim, device=agent.device)   
-                action = planner(obs, env.state, mean=mean, std=std, eval_mode=True, step=plan_step, t0=t == 0, q_pol=q_pol_agent.model.pi, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())   
-            else:
-                action = planner(obs, env.state, eval_mode=True, step=plan_step, t0=t == 0, gt_rollout_start_state= None if not cfg.gt_rollout else env.unwrapped.get_env_state())
+                video.init(env, enabled=(ep_count == 0))
+        while not done:              
+            action, q_stat = agent.plan(obs, env.state, 
+                                        eval_mode=True, 
+                                        step=(0 if policy_rollout else step), 
+                                        t=t)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
             obs_unstacked.append(obs[0,-4:-1])
             actions.append(env.base_env().last_eef_cmd)
             ep_reward += reward
+            if q_stat is not None:
+                q_stats.append(q_stat)
             if video:
                 video.record(env)
             t += 1
-        ep_success = info.get('success', 0)
+        print('Episode length: {}'.format(time.time()-start_time))
+        ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
 
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
-            task_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
+            task_success, new_rewards, retry_episode = env.post_process_task(obs_unstacked, states, eval_mode=True)
+            
+            if retry_episode:
+                print('Episode result unclear, retry')
+                continue
+            
             if task_success:
                 ep_reward = torch.sum(new_rewards).item()
 
@@ -91,18 +93,37 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot, policy_rollout=F
         episode_actions.append(np.stack(actions, axis=0))
         episode_rewards.append(ep_reward)
         episode_successes.append(ep_success)
+        if len(q_stats) > 0:
+            ep_q_stats.append(q_stats)
+            ep_q_success.append(ep_success)
         if video:
             video.save(env_step)
+        ep_count += 1
 
+    assert(len(episode_states)) == cfg.eval_episodes
+    assert(len(episode_actions)) == cfg.eval_episodes
+    assert(len(episode_rewards)) == cfg.eval_episodes
+    assert(len(episode_successes)) == cfg.eval_episodes
+
+    ep_uncertainty_weight = 0.0
+    uncertainty_count = 0
+    if len(ep_q_stats) > 0 and q_plot is not None:
+        print('LOGGING Q VALS')
+        q_plot.log_q_vals(env_step, ep_q_stats, ep_q_success)
+        for i in range(len(ep_q_stats)):
+            for j in range(len(ep_q_stats[i])):
+                ep_uncertainty_weight += ep_q_stats[i][j]['uncertainty_weight']
+                uncertainty_count += 1
+        ep_uncertainty_weight = ep_uncertainty_weight/uncertainty_count
     if traj_plot:
         if not cfg.real_robot:
-            rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, rollout_agent)
+            rollout_states, rollout_actions = do_policy_rollout(cfg, episode_start_states, agent)
         else:
             rollout_states, rollout_actions = episode_states, episode_actions
         traj_plot.save_traj(rollout_states, rollout_actions, 
                             episode_states, episode_actions, 
                             env_step)
-    return np.nanmean(episode_rewards), np.nanmean(episode_successes)
+    return np.nanmean(episode_rewards), np.nanmean(episode_successes), ep_uncertainty_weight
 
 def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
     
@@ -138,25 +159,30 @@ def train(cfg: dict):
     demo_buffer = ReplayBuffer(deepcopy(cfg)) if cfg.get("demos", 0) > 0 else None
     buffer = ReplayBuffer(cfg)
     L = logger.Logger(work_dir, cfg)
-
+    print('Model dir {}'.format(L._model_dir))
     model_fps = load_checkpt_fp(cfg, L._model_dir, L._model_dir)      
-
-    bc_agent = TDMPC(cfg)
-    bc_model_fp = model_fps[0]
-    if bc_model_fp is not None:
-        bc_agent.load(bc_model_fp)
 
     step = 0
 
-    step = cfg.save_freq*(len(model_fps)-1)
-    model_fps = [model_fps[-1]]
+    #step = cfg.save_freq*(len(model_fps)-1)
+    #model_fps = [model_fps[-1]]
 
     start_time = time.time()
-    for model_fp in model_fps:
+    i = 0
+    while i < len(model_fps):
+    #for i in range(len(model_fps)):
+        model_fp = model_fps[i]
         assert(model_fp is not None)
         agent = TDMPC(cfg)
         print('Loading agent '+str(model_fp))
-        agent.load(model_fp)  
+        agent_data = torch.load(model_fp)
+        if isinstance(agent_data, dict):
+            agent.load(agent_data)
+        else:
+            agent = agent_data    
+            agent.cfg = cfg  
+        agent.model.eval()
+        agent.model_target.eval()  
        
         # Log training episode
         env_step = int(step * cfg.action_repeat)
@@ -168,22 +194,23 @@ def train(cfg: dict):
             "episode_success": 0,
         }
 
-        if not cfg.real_robot or step >= cfg.seed_steps or cfg.plan_policy:
-
-            assert((cfg.bc_rollout and cfg.bc_q_pol) or (not cfg.bc_rollout and not cfg.bc_q_pol))
-            bc_eval_rew, bc_eval_succ = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, rollout_agent=bc_agent,q_pol_agent=bc_agent)
-            eval_rew, eval_succ = 0.0, 0#evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot)
-            print('BC Reward {}, BC Succ {}'.format(bc_eval_rew, bc_eval_succ))
-            print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
-        else:
-            eval_rew, eval_succ = -cfg.episode_length, 0.0
-            bc_eval_rew, bc_eval_succ = -cfg.episode_length, 0.0
-        common_metrics.update(
-            {"episode_reward": eval_rew, "episode_success": eval_succ,
-                "bc_episode_reward": bc_eval_rew, "bc_episode_success":bc_eval_succ}
-        )
-        L.log(common_metrics, category="eval")
-        step += cfg.save_freq
+        eval_rew, eval_succ, uncertainty_weight = evaluate(env, agent, cfg, step, env_step, L.video)
+        print('Eval rew {}, eval succ {}'.format(eval_rew, eval_succ))
+        while True:
+            resp = input('c to continue, r to repeat')
+            if resp == 'c':
+                common_metrics.update(
+                    {"episode_reward": eval_rew, "episode_success": eval_succ}
+                )
+                L.log(common_metrics, category="eval")
+                step += cfg.save_freq
+                i+= 1
+                break
+            elif resp == 'r':
+                break
+            else:
+                pass
+        
 
     L.finish()
     print("Eval completed successfully")

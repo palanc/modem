@@ -103,6 +103,12 @@ val_mean_w: 1.0
 val_std_w: 0.0
 mix_schedule: false
 uncertainty_weighting: false
+depth_success_thresh: ???
+reorient_pickup_height: ???
+reorient_drop_goal_x: ???
+reorient_drop_goal_y: ???
+reorient_knock_height: ???
+limit_mix_sched: false
 
 hydra:
     job:

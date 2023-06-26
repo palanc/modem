@@ -58,7 +58,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
     rollouts = 0
     successes = 0
 
-    real_tar_pos = np.array([0.5, 0.0, 1.1])
+    real_tar_pos = np.array([0.5, 0.0, 1.25])
     latest_img  = None
     grasp_centers = None
     filtered_boxes = None
@@ -67,8 +67,13 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
     while num_rollouts <= 0 or successes < num_rollouts:
 
         if latest_img is not None and (grasp_centers is None or len(grasp_centers) <= 0):
+            #grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
+            #                                                          out_dir=output_dir+'/debug')
             grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
-                                                                      out_dir=output_dir+'/debug')
+                                                                    out_dir=output_dir+'/debug',
+                                                                    min_pixels=100,
+                                                                    luv_thresh=True,
+                                                                    limit_yaw=True)                                                                      
 
         if grasp_centers is not None and len(grasp_centers) > 0:
             real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
@@ -111,7 +116,7 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
         
         rollouts += 1
 
-        mean_diff, new_img, grasp_success, pre_drop_img, post_drop_img = check_grasp_success(env, obs, 
+        mean_diff, new_img, grasp_success, pre_drop_img, post_drop_img, _ = check_grasp_success(env, obs, 
                                                                                             force_img=force_check or grasp_centers is None or len(grasp_centers) <= 0 )
         
         if new_img is not None:

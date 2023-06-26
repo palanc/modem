@@ -156,6 +156,10 @@ class TDMPC:
         
         self.succ_q_std = deque([], maxlen=30)
         self.fail_q_std = deque([], maxlen=30)
+        
+        self.max_eval_success = 0.0
+        self.max_mix_prob = 0.0
+        self.mix_prob_inc = 0.05
 
         print(
             "Total parameters: {:,}".format(
@@ -278,7 +282,7 @@ class TDMPC:
         )
 
         # Seed steps
-        if step <= self.cfg.seed_steps:# and not eval_mode:
+        if step < self.cfg.seed_steps:# and not eval_mode:
             return self.act(obs, state).squeeze(0), None
 
         horizon = int(
@@ -289,6 +293,9 @@ class TDMPC:
         z_bc, z_learned = self.model.h(obs, state, compute_learned=True)
         
         model_act_prob = h.linear_schedule(self.cfg.mix_schedule, step)
+        if self.cfg.real_robot:
+            model_act_prob = min(model_act_prob, self.max_mix_prob)
+            
         use_model = True
         if np.random.rand() > model_act_prob:
             use_model = False

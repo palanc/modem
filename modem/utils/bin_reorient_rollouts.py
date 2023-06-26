@@ -38,12 +38,31 @@ DESC='script for collecting bin picking demos on real robot'
 @click.option('-fc','--force_check', type=bool, default=False)
 def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num_rollouts, force_check):
 
+    if 'RP03' in env_name:
+        success_thresh = 40
+        pickup_height = 0.925
+        xy_offset = [-0.15,0.065]
+        obj_height=0.9
+        down_thresh = 0.925
+        drop_goal_x = 0.61
+        drop_goal_y = 0.0
+        knock_height = 1.095
+    else:
+        success_thresh = 45
+        pickup_height = 0.95
+        obj_height=0.9
+        down_thresh = 0.925
+        xy_offset = [-0.145,0.065]
+        drop_goal_x = 0.63
+        drop_goal_y = 0.0
+        knock_height = 1.12
+
     # seed and load environments
     np.random.seed(seed)
     env = gym.make(env_name, **{'reward_mode': 'sparse', 'is_hardware':True})
     env.seed(seed)
 
-    pi = BinReorientPolicy(env, seed)
+    pi = BinReorientPolicy(env, seed, down_thresh=down_thresh)
 
     # resolve directory
     if (os.path.isdir(output_dir) == False):
@@ -68,7 +87,13 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
 
     env.reset()
     obs = env.get_obs(update_proprioception=True, update_exteroception=True)
-    _, reset_img = check_reorient_success(env, obs)
+    _, reset_img = check_reorient_success(env, obs, 
+                                          out_dir=output_dir+'/debug',
+                                          success_thresh=success_thresh, 
+                                          pickup_height=pickup_height, 
+                                          drop_goal_x=drop_goal_x, 
+                                          drop_goal_y=drop_goal_y,
+                                          knock_height=knock_height)
 
     while num_rollouts <= 0 or successes < num_rollouts:
 
@@ -77,7 +102,8 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
                                                                 min_pixels=400,
                                                                 luv_thresh=True,
                                                                 limit_yaw=False)
-        real_obj_pos, real_yaw = graspcenter2pose(grasp_centers[-1], xy_offset=[-0.145,0.065])
+        real_obj_pos, real_yaw = graspcenter2pose(grasp_centers[-1], xy_offset=xy_offset)
+        real_obj_pos[2] = obj_height
         pi.set_real_obj_pos(real_obj_pos)
         pi.set_real_yaw(real_yaw)
         paths = env.examine_policy_new(
@@ -91,12 +117,36 @@ def main(env_name, mode, seed, render, camera_name, output_dir, output_name, num
             camera_name=camera_name,
             render=render)   
         print('Passed yaw {}'.format(real_yaw))
-        reorient_success, reset_img = check_reorient_success(env, obs,out_dir=output_dir+'/debug')
+        reorient_success, reset_img = check_reorient_success(env, None,
+                                                             out_dir=output_dir+'/debug', 
+                                                             drop_goal_x=drop_goal_x, 
+                                                             drop_goal_y=drop_goal_y, 
+                                                             success_thresh=success_thresh, 
+                                                             pickup_height=pickup_height,
+                                                             knock_height=knock_height)
+
+        paths.close()
+
+        loop_count = 0
+        for pname, pdata in paths.trace.items():  
+            qp = pdata['env_infos/obs_dict/qp'][:env.spec.max_episode_steps+1]
+            grasp_pos = pdata['env_infos/obs_dict/grasp_pos'][:env.spec.max_episode_steps+1]
+            #if not ((qp[-5:, 8] < 1.0).all() and 
+            #        (qp[-5:, 9] < 1.0).all() and 
+            #       (qp[-5:, 12] < 1.0).all() and 
+            #        (qp[-5:, 15] < 1.0).all()):
+            if not ((qp[-5:, 8] > 0.5).all() and (qp[-5:, 8] < 1.0).all() and
+                    (qp[-5:, 12] > 0.75).all() and (qp[-5:, 12] < 1.25).all() and
+                    (qp[-5:, 15] > 0.5).all() and (qp[-5:, 15] < 1.0).all() and
+                    (grasp_pos[-5:, 2] > 1.05).all() and (grasp_pos[-5:, 2] < 1.1).all() 
+                    ):
+                reorient_success = False
+            loop_count += 1
+        assert(loop_count == 1)
 
         if reorient_success:
             time_stamp = time.strftime("%Y%m%d-%H%M%S")
             file_name = output_dir + '/' + output_name + '{}_paths.pickle'.format(time_stamp)
-            paths.close()
             paths.save(trace_name=file_name, verify_length=True, f_res=np.float64)            
             successes += 1
 

@@ -28,6 +28,7 @@ from robohive.logger.grouped_datasets import Trace
 
 torch.backends.cudnn.benchmark = True
 import pickle
+import algorithm.helper as h
 
 def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
@@ -53,9 +54,10 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
 
     ep_q_stats = []
     ep_q_success = []
-    for i in range(cfg.eval_episodes):
-        print('Episode {}'.format(i))
-        start = time.time()
+    #for i in range(cfg.eval_episodes):
+    ep_count = 0
+    while ep_count < cfg.eval_episodes:
+        print('Episode {}'.format(ep_count))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
@@ -64,9 +66,11 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
         q_stats = []
         if video:
             if cfg.real_robot:
-                video.init(env, enabled=(i < 5))
+                video.init(env, enabled=(ep_count < 5))
             else:
-                video.init(env, enabled=(i == 0))
+                video.init(env, enabled=(ep_count == 0))
+        print('Step {}'.format(step))
+        start_time = time.time()
         while not done:              
             action, q_stat = agent.plan(obs, env.state, 
                                         eval_mode=True, 
@@ -105,12 +109,18 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
             if video:
                 video.record(env)
             t += 1
+        print('Episode length: {}'.format(time.time()-start_time))
         ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
         print('Rollout duration: {}'.format(time.time()-start))
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
-            task_success, new_rewards = env.post_process_task(obs_unstacked, states, eval_mode=True)
+            task_success, new_rewards, retry_episode = env.post_process_task(obs_unstacked, states, eval_mode=True)
+            
+            if retry_episode:
+                print('Episode result unclear, retry')
+                continue
+            
             if task_success:
                 ep_reward = torch.sum(new_rewards).item()
 
@@ -125,6 +135,12 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
             ep_q_success.append(ep_success)
         if video:
             video.save(env_step)
+        ep_count += 1
+
+    assert(len(episode_states)) == cfg.eval_episodes
+    assert(len(episode_actions)) == cfg.eval_episodes
+    assert(len(episode_rewards)) == cfg.eval_episodes
+    assert(len(episode_successes)) == cfg.eval_episodes
 
     ep_uncertainty_weight = 0.0
     uncertainty_count = 0
@@ -250,6 +266,7 @@ def train(cfg: dict):
                                             exclude_fails=False,
                                             is_demo=False)
             assert(len(paths_episodes)==1)
+            print('Loaded training episode {} reward {}'.format(i,torch.sum(paths_episodes[0].reward).item()))
             buffer += paths_episodes[0]       
             print('Loaded episode {} of {}'.format(i+1,start_step//cfg.episode_length))
         print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
@@ -306,55 +323,69 @@ def train(cfg: dict):
     for step in range(start_step, start_step+cfg.train_steps + cfg.episode_length, cfg.episode_length):
 
         # Collect trajectory
-        obs = env.reset()
-        episode = Episode(cfg, obs, env.state)
-    
-        trace = Trace('rollout'+f'{(step//cfg.episode_length):010d}')
-        trace.create_group('Trial0')
-
-        t = 0
-        ep_q_std = []
-        ep_uncertainty_weight = 0.0
-        while not episode.done:
-            action, q_stats = agent.plan(obs, env.state, step=step, t=t) 
-            trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
-            obs, reward, done, info = env.step(action.cpu().numpy())
-            episode += (obs, env.state, action, reward, done)
-            if q_stats is not None:
-                ep_q_std.append(q_stats['model_std_topk'])
-                ep_uncertainty_weight += q_stats['uncertainty_weight']
-            t+=1
-
-        trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
-        assert (
-            len(episode) == cfg.episode_length
-        ), f"Episode length {len(episode)} != {cfg.episode_length}"
+        retry_episode = True
+        while retry_episode:
+            retry_episode = False
+            obs = env.reset()
+            episode = Episode(cfg, obs, env.state)
         
-        if cfg.real_robot:
-            print('Checking success')
+            trace = Trace('rollout'+f'{(step//cfg.episode_length):010d}')
+            trace.create_group('Trial0')
 
-            task_success, new_rewards = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
-            info['success'] = int(task_success)
-            if task_success:
-                episode.reward = new_rewards
-                episode.cumulative_reward = torch.sum(episode.reward).item()
-                print('Ep reward {}'.format(episode.cumulative_reward))
-        else:
-            task_success = np.sum(episode.cumulative_reward) >= 5
+            t = 0
+            ep_q_std = []
+            ep_uncertainty_weight = 0.0
+            if cfg.real_robot:
+                L.video.init(env, enabled=True)
+            ep_start = time.time()
+            while not episode.done:
+                action, q_stats = agent.plan(obs, env.state, step=step, t=t) 
+                trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
+                obs, reward, done, info = env.step(action.cpu().numpy())
+                episode += (obs, env.state, action, reward, done)
+                if cfg.real_robot:
+                    L.video.record(env)
+                if q_stats is not None:
+                    ep_q_std.append(q_stats['model_std_topk'])
+                    ep_uncertainty_weight += q_stats['uncertainty_weight']
+                t+=1
+            print('Train ep duration {}'.format(time.time()-ep_start))
 
-        if len(ep_q_std) > 0:
-            if task_success:
-                agent.succ_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+            trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
+            assert (
+                len(episode) == cfg.episode_length
+            ), f"Episode length {len(episode)} != {cfg.episode_length}"
+            
+            if cfg.real_robot:
+                print('Checking success')
+
+                task_success, new_rewards, retry_episode = env.post_process_task(episode.obs[:,0,-4:-1].cpu().numpy(), episode.state, eval_mode=False)
+                if retry_episode:
+                    print('Episode result unclear, retrying')
+                    continue
+                info['success'] = int(task_success)
+                if task_success:
+                    episode.reward = new_rewards
+                    episode.cumulative_reward = torch.sum(episode.reward).item()
+                    print('Ep reward {}'.format(episode.cumulative_reward))
+                L.video.save(step*cfg.action_repeat, key="videos/train_video")
             else:
-                agent.fail_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+                task_success = np.sum(episode.cumulative_reward) >= 5
+                
 
-        for success_idx in range(cfg.episode_length+1):
-            trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
-        trace_fn = trace.name + '.pickle'
-        trace_path = episode_dir+'/'+trace_fn
-        print('Saving {}'.format(trace_path))
-        trace.stack()
-        trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
+            if len(ep_q_std) > 0:
+                if task_success:
+                    agent.succ_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+                else:
+                    agent.fail_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
+
+            for success_idx in range(cfg.episode_length+1):
+                trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
+            trace_fn = trace.name + '.pickle'
+            trace_path = episode_dir+'/'+trace_fn
+            print('Saving {}'.format(trace_path))
+            trace.stack()
+            trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
         
         '''
         paths = Trace.load(trace_path)
@@ -434,6 +465,8 @@ def train(cfg: dict):
             L.save_model(agent, env_step)
             print(colored(f"Model has been checkpointed", "yellow", attrs=["bold"]))
 
+        if not cfg.limit_mix_sched:
+            agent.max_mix_prob = h.linear_schedule(cfg.mix_schedule, step)
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
@@ -468,6 +501,14 @@ def train(cfg: dict):
                 
             print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             
+            if cfg.limit_mix_sched:
+                if eval_succ >= agent.max_eval_success:
+                    agent.max_eval_success = eval_succ
+
+                    sched_model_act_prob = h.linear_schedule(cfg.mix_schedule, step)
+                    if agent.max_mix_prob < sched_model_act_prob:
+                        agent.max_mix_prob += agent.mix_prob_inc
+
             common_metrics.update(
                 {"episode_reward": eval_rew, "episode_success": eval_succ}
             )

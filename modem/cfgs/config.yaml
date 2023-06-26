@@ -106,6 +106,12 @@ uncertainty_weighting: false
 vanilla_modem: false
 ignore_bc: false
 eval_dir: ???
+depth_success_thresh: ???
+reorient_pickup_height: ???
+reorient_drop_goal_x: ???
+reorient_drop_goal_y: ???
+reorient_knock_height: ???
+limit_mix_sched: false
 
 hydra:
     job:

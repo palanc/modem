@@ -9,16 +9,19 @@ from robohive.utils.quat_math import quat2euler
 from matplotlib import pyplot as plt
 
 MAX_GRIPPER_OPEN = 0.0002
-MIN_GRIPPER_CLOSED = 0.8228
-DROP_ZONE = np.array([0.53, 0.0, 1.1])
-# DROP_ZONE = np.array([0.575, 0.0, 1.1]) - better yaw setting
-DROP_ZONE_PERTURB = np.array([0.025, 0.025,0.0])
+MIN_GRIPPER_CLOSED = 1.0#0.8228
+#DROP_ZONE = np.array([0.53, 0.0, 1.1])
+#DROP_ZONE_PERTURB = np.array([0.025, 0.025,0.0])
+
+DROP_ZONE = np.array([0.575, 0.0, 1.1])
+DROP_ZONE_PERTURB = np.array([0.075, 0.125,0.0])
+
 OUT_OF_WAY = np.array([0.3438, -0.9361,  0.0876, -2.8211,  0.0749,  0.5144, -1.57])
 
 PIX_FROM_LEFT = 73
 PIX_FROM_TOP = 58
 DIST_FROM_CENTER = 1.0668/2
-DIST_FROM_BASE = 0.7493#0.72
+DIST_FROM_BASE = 0.73#0.7493#0.72
 X_SCALE = 0.5207/152 # 0.5207 is length of bin 
 Y_SCALE = 1.0668/314 # 1.0668 is width of bin
 
@@ -100,6 +103,23 @@ def open_gripper(env, obs):
         obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
     return obs, env_info
 
+def close_gripper(env, obs):
+    env_info = env.get_env_infos()
+    obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+    close_qp = obs_dict['qp'][0,0,:8].copy()
+    close_qp[7] = 0.835
+
+    jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
+    jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]    
+    close_action = 2*(((close_qp - jnt_low)/(jnt_high-jnt_low))-0.5)    
+    
+    start_time = time.time()
+
+    while((obs_dict['qp'][0,0,7] < 0.8228) and time.time()-start_time < 2.0):
+        obs, _, done, env_info = env.unwrapped.step(close_action, update_exteroception=True)
+        obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+    return obs, env_info
+
 def move_to(action, env):
 
     last_qp = None
@@ -134,7 +154,7 @@ def graspcenter2pose(grasp_center, xy_offset=[-0.13,0.05], fix_wrap=True):
     return real_obj_pos, real_yaw
 
 
-def check_reorient_success(env, obs, out_dir='/tmp'):
+def check_reorient_success(env, obs, success_thresh, pickup_height, drop_goal_x, drop_goal_y, knock_height, out_dir='/tmp'):
     jnt_low = env.sim.model.jnt_range[:env.sim.model.nu, 0]
     jnt_high = env.sim.model.jnt_range[:env.sim.model.nu, 1]    
     #OUT_OF_WAY_HAND = np.array([0.0,1.5,0.0,0.0,
@@ -161,6 +181,11 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
     obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
     env_info = env.get_env_infos()
 
+    finish_config = np.concatenate([obs_dict['qp'][0,0,:7], OUT_OF_WAY_HAND])
+    obs, env_info = move_joint_config(env, finish_config)     
+
+    time.sleep(3)
+
     # Get top cam key
     top_rgb_cam_key = None
     top_d_cam_key = None
@@ -179,10 +204,11 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
 
     reorient_success = None
     knocked_over = False
-    goal_x = 0.6#0.58
-    goal_y = 0.0
+    goal_x = drop_goal_x #0.63
+    goal_y = drop_goal_y #0.0
     knock_goal_x = 0.45
     knock_goal_y = 0.0
+    
     while not knocked_over:
 
         yaw = quat2euler(obs_dict['grasp_rot'][0, 0, :])[-1]
@@ -203,7 +229,7 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
         bin_mask[MASK_START_Y:MASK_END_Y, MASK_START_X:MASK_END_X, :] = 255
         success_img = cv2.bitwise_and(success_img, bin_mask)
 
-        top_pixels = np.logical_and(success_img>0, success_img <= 45)
+        top_pixels = np.logical_and(success_img>0, success_img <= success_thresh)
         thresh_val = top_pixels.sum()
         knocked_over = thresh_val < 250
         #from matplotlib import pyplot as plt
@@ -239,7 +265,13 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
         knock_dir = np.array([knock_goal_x-knock_x, knock_goal_y-knock_y])
         knock_dir = knock_dir / np.linalg.norm(knock_dir)
         knock_yaw = -np.pi/4+np.random.uniform(-np.pi/4, np.pi/4.0)#np.arctan2(knock_dir[0], knock_dir[1])
-        preknock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
+        
+        preknock_action = np.concatenate([[knock_x, knock_y, knock_height, 3.14, 0.0, knock_yaw],
+                                          OUT_OF_WAY_HAND])
+
+        move_to(preknock_action, env)        
+
+        preknock_action = np.concatenate([[knock_x, knock_y, knock_height, 3.14, 0.0, knock_yaw],
                                           KNOCK_HAND])
 
         move_to(preknock_action, env)
@@ -247,18 +279,19 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
         knock_x += env.sim.data.site_xpos[env.grasp_sid][0] - env.sim.data.site_xpos[env.hand_sid][0]
         knock_y += env.sim.data.site_xpos[env.grasp_sid][1] - env.sim.data.site_xpos[env.hand_sid][1]
 
-        preknock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
+        preknock_action = np.concatenate([[knock_x, knock_y, knock_height, 3.14, 0.0, knock_yaw],
                                            KNOCK_HAND])
         
         move_to(preknock_action, env)        
 
         #knock_x = knock_x + 0.15*knock_dir[0]
         #knock_y = knock_y + 0.15*knock_dir[1]
-        knock_action = np.concatenate([[knock_x, knock_y, 1.12, 3.14, 0.0, knock_yaw],
+        knock_action = np.concatenate([[knock_x, knock_y, knock_height, 3.14, 0.0, knock_yaw],
                                            FLIP_HAND])
         move_to(knock_action, env)                                               
- 
+    
     # Move knocked over bottle to middle
+    first_time = True
     while True:
         invert_yaw = False
         obs, env_info = move_joint_config(env, out_of_way_jnts) 
@@ -296,15 +329,16 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
 
         drag_dir = np.array([goal_x-grasp_x, goal_y-grasp_y])
         #print('Reset err {}, norm {} '.format(drag_dir, np.linalg.norm(drag_dir)))
-        if np.linalg.norm(drag_dir) < 0.08 and (yaw_zero > -np.pi/4 and yaw_zero < np.pi/4):
+        if np.linalg.norm(drag_dir) < 0.08 and (yaw_zero > -np.pi/4 and yaw_zero < np.pi/4) and not first_time:
             break
+        first_time = False
 
-        predrag_action = np.concatenate([[grasp_pose[0], grasp_pose[1], 0.95, 3.14, 0.0, grasp_yaw],
+        predrag_action = np.concatenate([[grasp_pose[0], grasp_pose[1], pickup_height, 3.14, 0.0, grasp_yaw],
                                            OUT_OF_WAY_HAND])
         
         move_to(predrag_action, env)        
 
-        predrag_action = np.concatenate([[grasp_pose[0], grasp_pose[1], 0.95, 3.14, 0.0, grasp_yaw],
+        predrag_action = np.concatenate([[grasp_pose[0], grasp_pose[1], pickup_height, 3.14, 0.0, grasp_yaw],
                                            DRAG_HAND])
         
         move_to(predrag_action, env)       
@@ -346,7 +380,6 @@ def check_reorient_success(env, obs, out_dir='/tmp'):
                                            RELEASE_HAND])
         move_to(drag_action, env) 
         
-        print
         time.sleep(1)
 
     return reorient_success, reset_img
@@ -364,7 +397,7 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
         failed_grasp = True
         print('Policy didnt close gripper')
         if not force_img:
-            return None, None, False, None, None
+            return None, None, False, None, None, False
 
     if obs_dict['grasp_pos'][0,0,2] < 1.0:
         failed_grasp = True
@@ -372,7 +405,9 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
         obs, env_info = open_gripper(env, obs)
         obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
         if not force_img:
-            return None, None, False, None, None
+            return None, None, False, None, None, False
+
+
 
     print('moving up')
     des_grasp_pos = obs_dict['grasp_pos'][0,0,:].copy()
@@ -406,7 +441,7 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
         obs, env_info = open_gripper(env, obs)
         obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
         if not force_img:
-            return None, None, False, None, None
+            return None, None, False, None, None, False
 
     pre_drop_img = None
     # Get top cam key
@@ -426,6 +461,13 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
         obs, env_info = move_joint_config(env, np.concatenate([OUT_OF_WAY, [obs_dict['qp'][0,0,7]]]))   
 
         pre_drop_img = env_info['visual_dict'][top_cam_key]
+
+    obs, env_info = close_gripper(env, obs)
+    obs_dict = env.obsvec2obsdict(np.expand_dims(obs, axis=(0,1)))
+    if obs_dict['qp'][0,0,7] < 0.8:
+        grasped = True
+    else:
+        grasped = False
 
     if just_drop or not failed_grasp:
 
@@ -468,7 +510,8 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
 
         drop_pos = obs_dict['grasp_pos'][0,0]
 
-        drop_x = int(PIX_FROM_LEFT + (drop_pos[1]+DIST_FROM_CENTER)/Y_SCALE)
+        #drop_x = int(PIX_FROM_LEFT + (drop_pos[1]+DIST_FROM_CENTER)/Y_SCALE)
+        drop_x = int(PIX_FROM_LEFT + (DIST_FROM_CENTER-drop_pos[1])/Y_SCALE)
         drop_y = int(PIX_FROM_TOP + (DIST_FROM_BASE-drop_pos[0])/X_SCALE)
 
         print('drop_pos x: {}, drop_pos y: {}'.format(drop_zone_pos[0], drop_zone_pos[1]))
@@ -496,11 +539,12 @@ def check_grasp_success(env, obs, force_img=False, just_drop=False):
     if pre_drop_img is not None and latest_img is not None and success_mask is not None:
         post_drop_img = cv2.bitwise_and(latest_img, success_mask)
         mean_diff = np.mean(np.abs(post_drop_img.astype(float)-pre_drop_img.astype(float)))
-        print('Mean img diff: {}'.format(mean_diff))    
+        print('Mean img diff: {}'.format(mean_diff))     
+
     else:
         mean_diff =  0.0
 
-    return mean_diff, latest_img, mean_diff > DIFF_THRESH, pre_drop_img, post_drop_img
+    return mean_diff, latest_img, mean_diff > DIFF_THRESH, pre_drop_img, post_drop_img, grasped
 
 def update_grasps(img, out_dir=None, min_pixels=9, luv_thresh=False, limit_yaw=True):
     if out_dir is not None and not os.path.isdir(out_dir):
@@ -574,17 +618,43 @@ def update_grasps(img, out_dir=None, min_pixels=9, luv_thresh=False, limit_yaw=T
                                         255, 
                                         cv2.THRESH_BINARY)
         pca.fit(np.transpose(np.nonzero(yaw_thresh > 128)))
+
+        yaw = np.arctan2(pca.components_[0][0], pca.components_[0][1]) + np.pi/4.0
+
+        #####
+        '''
+        obj_yaw = (yaw-np.pi/4.0)*(180/np.pi)
+        dsize = max(yaw_thresh.shape[0], yaw_thresh.shape[1])
+        yaw_img_center = (int(yaw_thresh.shape[1] / 2), int(yaw_thresh.shape[0] / 2))
+        yaw_rot_mat = cv2.getRotationMatrix2D(center=yaw_img_center, 
+                                          angle=-1*obj_yaw, scale=1)
+        yaw_thresh_rot = cv2.warpAffine(
+            src=yaw_thresh, M=yaw_rot_mat, dsize=(dsize, dsize))
+        yaw_rot_img_fn = os.path.join(out_dir,'yaw_thresh_rot{}.png'.format(i))                
+        cv2.imwrite(yaw_rot_img_fn, yaw_thresh_rot[:,:,np.newaxis])
+        left_yaw_count = np.sum(yaw_thresh_rot[:,:yaw_img_center[0]])
+        right_yaw_count = np.sum(yaw_thresh_rot[:,yaw_img_center[0]:])
+        if left_yaw_count < right_yaw_count:
+            yaw += np.pi
+        while yaw > np.pi:
+            yaw -= 2*np.pi
+        '''
+        
+        yaw_img_x = pca.components_[0][1]#np.cos(yaw-np.pi/4.0)
+        yaw_img_y = pca.components_[0][0]#np.sin(yaw-np.pi/4.0)
+
         yaw_img = img.copy()
         yaw_img[y:y+h, x:x+w,:] = yaw_thresh[:,:,np.newaxis]
         yaw_img = cv2.line(yaw_img, 
                            (int(x+w/2.0), int(y+h/2.0)), 
-                           (int(x+w/2.0+25*pca.components_[0][1]),int(y+h/2.0+25*pca.components_[0][0])),
+                           #(int(x+w/2.0+25*pca.components_[0][1]),int(y+h/2.0+25*pca.components_[0][0])),
+                           (int(x+w/2.0+25*yaw_img_x),int(y+h/2.0+25*yaw_img_y)),
                            (255,0,0),
                            2)
         yaw_img_fn = os.path.join(out_dir,'yaw_thresh{}.png'.format(i))
+        #print('Saving image to {}'.format(str(yaw_img_fn)))
         cv2.imwrite(yaw_img_fn, yaw_img)
-
-        yaw = np.arctan2(pca.components_[0][0], pca.components_[0][1]) + np.pi/4.0
+        #######
         if limit_yaw:
             while yaw > 0:
                 yaw -= np.pi

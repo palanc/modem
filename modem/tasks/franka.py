@@ -70,7 +70,7 @@ class FrankaWrapper(gym.Wrapper):
 
                 self.consec_train_fails = 0
                 self.RESET_PI_THRESH = 1
-                self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed)
+                self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed, is_reset_policy=True)
             elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
                 self.col_thresh = ColorThreshold(cam_name=self.camera_names[0], 
                                                 left_crop=self.cfg.success_mask_left, 
@@ -218,8 +218,8 @@ class FrankaWrapper(gym.Wrapper):
             assert(action.shape[0] == 6)
             aug_action = np.zeros(7, dtype=action.dtype)
             aug_action[:3] = action[:3]
-            aug_action[3] = 1.0
-            aug_action[4] = -1.0
+            aug_action[3] = 1.0+0.1*np.random.normal()
+            aug_action[4] = -1.0+0.1*np.random.normal()
             aug_action[5] = np.arctan2(action[4], action[3])
             aug_action[5] = 2*(((aug_action[5] - self.env.pos_limits['eef_low'][5]) / (self.env.pos_limits['eef_high'][5] - self.env.pos_limits['eef_low'][5])) - 0.5)
             aug_action[6] = 2*(int(action[5]>0.0)-0.5)
@@ -303,8 +303,14 @@ class FrankaWrapper(gym.Wrapper):
         assert(self.cfg.real_robot)
         success = False
         rewards = None
+        retry_episode = False
         if self.cfg.task.startswith('franka-FrankaBinPick'):
-            _, latest_img, success, _, _ = check_grasp_success(env=self.env, obs=None, force_img=eval_mode or (self.consec_train_fails>=self.RESET_PI_THRESH-1))
+            _, latest_img, success, _, _, grasped = check_grasp_success(env=self.env, obs=None, force_img=eval_mode or (self.consec_train_fails>=self.RESET_PI_THRESH-1))
+            
+            if (success and not grasped) or (not success and grasped):
+                print('Result unclear, retry episode')
+                retry_episode = True 
+            
             if success:
                 rewards = recompute_real_rwd(self.cfg, states)
                 self.consec_train_fails = 0
@@ -321,12 +327,18 @@ class FrankaWrapper(gym.Wrapper):
                     while(not reset_success):
                             
                         while(len(grasp_centers) <= 0):
-                            grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                                                                                    out_dir=self.cfg.logging_dir+'/debug')
+                            #grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
+                            #                                                        out_dir=self.cfg.logging_dir+'/debug')
+                            grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
+                                                                                    out_dir=self.cfg.logging_dir+'/debug',
+                                                                                    min_pixels=100,
+                                                                                    luv_thresh=True,
+                                                                                    limit_yaw=True)                                                                                     
                             if len(grasp_centers) <= 0:
                                 input('Block not detected, enter to continue')
                                 print('Taking new block image')
-                                _, latest_img, _, _, _ = check_grasp_success(env=self.env, obs=None, force_img=True)
+                                retry_episode = True
+                                _, latest_img, _, _, _, _ = check_grasp_success(env=self.env, obs=None, force_img=True)
                         
                         real_obj_pos = np.array([grasp_centers[-1][0],grasp_centers[-1][1], 0.91])
                         real_obj_yaw = grasp_centers[-1][2]
@@ -345,7 +357,7 @@ class FrankaWrapper(gym.Wrapper):
                                                     filename=None,
                                                     camera_name=None,
                                                     render='none')  
-                        _, latest_img, reset_success, _, _ = check_grasp_success(self.env, obs=None, force_img=True)
+                        _, latest_img, reset_success, _, _, _ = check_grasp_success(self.env, obs=None, force_img=True)
                         grasp_centers = []
                     print('Object has been reset')
                     if not eval_mode:
@@ -357,18 +369,24 @@ class FrankaWrapper(gym.Wrapper):
         elif self.cfg.task.startswith('franka-FrankaBinReorient'):
             output_dir = Path(self.cfg.logging_dir) / "logs" / self.cfg.task / self.cfg.exp_name / str(self.cfg.seed)
             output_dir = str(output_dir)
-            reorient_success, reset_img = check_reorient_success(self.env.unwrapped, obs=None,out_dir=output_dir)
+            reorient_success, reset_img = check_reorient_success(self.env.unwrapped, obs=None,
+                                                                 out_dir=output_dir, 
+                                                                 drop_goal_x=self.cfg.reorient_drop_goal_x,
+                                                                 drop_goal_y=self.cfg.reorient_drop_goal_y,
+                                                                 success_thresh=self.cfg.depth_success_thresh, 
+                                                                 pickup_height=self.cfg.reorient_pickup_height,
+                                                                 knock_height=self.cfg.reorient_knock_height)
             success = reorient_success
             rewards = recompute_real_rwd(self.cfg, states)            
         else:
             raise NotImplementedError()
         
-        return success, rewards
+        return success, rewards, retry_episode
 
 def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
     assert(states.shape[1] == 25 or 
         (cfg.task == 'franka-FrankaBinPickRealRP05_v2d' and states.shape[1] == 23) or
-        (cfg.task == 'franka-FrankaBinReorientReal_v2d' and states.shape[1] == 41))
+        (cfg.task.startswith('franka-FrankaBinReorientReal') and states.shape[1] == 41))
     rewards = torch.zeros(
         (cfg.episode_length,), dtype=torch.float32, device=states.device
     )#-1.0
@@ -390,11 +408,24 @@ def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
                 rewards[t-1] = 1.0
         print('Ep reward: {}'.format(torch.sum(rewards).item()))
     elif cfg.task.startswith('franka-FrankaBinReorient'):
+        rewards[-5:] = 1.0
         for i in reversed(range(cfg.episode_length)):
-            if states[i+1, -5] > 1.0 and states[i+1, 12] > 1.0:
+            #if states[i+1, -5] > 1.0 and states[i+1, 12] > 1.45:            
+
+            if (states[i+1, 8] > 0.5 and states[i+1, 8] < 1.0 and
+                states[i+1, 12] > 0.75 and states[i+1, 12] < 1.25 and
+                states[i+1, 15] > 0.5 and states[i+1, 15] < 1.0 and
+                states[i+1, -5] > 1.05 and states[i+1, -5] < 1.1):
                 rewards[i] = 1.0
-            else:
-                break            
+            elif states[i+1, -5] <= 1.0:
+                break    
+            #if (states[i+1, 8] < 1.0 and 
+            #    states[i+1, 12] < 1.0 and 
+            #    states[i+1, 15] < 1.0 and 
+            #   states[i+1, -5] > 1.0):
+            #    rewards[i] = 1.0
+            #elif states[i+1, -5] <= 1.0:
+            #    break            
     else:
         raise NotImplementedError()
 

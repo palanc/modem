@@ -184,9 +184,13 @@ class TDMPC:
     @torch.no_grad()
     def act(self, obs, state, noise=None):
         """Sample action from current policy."""
-        z, _ = self.model.h(obs, state, compute_learned=False)
-        return self.model._acs[0].pi(z, self.cfg.min_std if noise is None else noise)
-
+        if not self.cfg.vanilla_modem:
+            z, _ = self.model.h(obs, state, compute_learned=False)
+            return self.model._acs[0].pi(z, self.cfg.min_std if noise is None else noise)
+        else:
+            assert(self.cfg.ensemble_size == 2)
+            z, z_learned = self.model.h(obs, state, compute_learned=True)
+            return self.model._acs[1].pi(z_learned, self.cfg.min_std if noise is None else noise)
     # actions_bc: (# traj, action dim)
     # actions_learned: (horizon, # traj, action dim)
     @torch.no_grad()
@@ -302,8 +306,13 @@ class TDMPC:
         assert(num_bc_traj+traj_per_ac*(self.cfg.ensemble_size-1) == self.cfg.num_samples)
         
         if num_bc_traj > 0:
-            actions_bc = self.model._acs[0].pi(z_bc.repeat(num_bc_traj,1), 
-                                            self.cfg.min_std)
+            if self.cfg.ignore_bc:
+                actions_bc = 2*torch.randn(num_bc_traj,
+                                           self.cfg.action_dim,
+                                           device=self.device)
+            else:
+                actions_bc = self.model._acs[0].pi(z_bc.repeat(num_bc_traj,1), 
+                                                self.cfg.min_std)
         else:
             actions_bc = None
 
@@ -325,6 +334,31 @@ class TDMPC:
         z_bc = z_bc.repeat(num_bc_traj, 1)
         z_learned = z_learned.repeat(num_learn_traj,1)
         
+
+
+        if self.cfg.vanilla_modem:
+            assert(num_learn_traj == self.cfg.num_samples)
+            assert(use_model)
+            assert(self.cfg.val_min_w > 0.999)
+            assert(self.cfg.val_mean_w < 0.001)
+            assert(self.cfg.val_std_w < 0.001)
+            std_learned = 2 * torch.ones(horizon, self.cfg.action_dim, device=self.device)
+
+            zero_samples = int(0.95*self.cfg.num_samples)
+            if t==0 and hasattr(self, "_prev_mean"):
+                actions_learned[:-1, :zero_samples, :] = self._prev_mean[1:].unsqueeze(1)
+                actions_learned[-1, :zero_samples, :] = 0.0
+            else:
+                actions_learned[:, :zero_samples, :] = 0.0
+            actions_learned[:, :zero_samples, :] += std_learned.unsqueeze(1) * torch.randn(
+                                                                horizon,
+                                                                zero_samples,
+                                                                self.cfg.action_dim,
+                                                                device=std_learned.device,
+                                                            )
+            actions_learned = torch.clamp(actions_learned, -1, 1)
+    
+
         # Iterate
         for _ in range(self.cfg.iterations):
             if mean_bc is not None:
@@ -386,7 +420,12 @@ class TDMPC:
 
                 if mean_learned is not None:
                     mean_learned = self.cfg.momentum * mean_learned + (1 - self.cfg.momentum) * _mean_learned
+                else:
+                    mean_learned = _mean_learned
                 std_learned = _std_learned
+
+                if self.cfg.vanilla_modem:
+                    self._prev_mean = mean_learned
 
         #learn_elite_idxs = torch.topk(
         #    value_learn, self.cfg.num_elites, dim=0

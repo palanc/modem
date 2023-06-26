@@ -1,8 +1,8 @@
 #!/bin/bash
 
 python train.py  -m \
-    task=franka-FrankaBinPush_v2d  \
-    exp_name=bin_push_img-final-ensemble-largeobj \
+    task=franka-FrankaBinPick_v2d  \
+    exp_name=bin_pick_img-final-ignore-bc \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
@@ -11,10 +11,10 @@ python train.py  -m \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \
-    episode_length=50 \
-    camera_views=[top_cam] \
-    left_crops=[0] \
-    top_crops=[0] \
+    episode_length=100 \
+    camera_views=[left_cam,right_cam] \
+    left_crops=[0,0] \
+    top_crops=[0,0] \
     action_repeat=1 \
     plan_policy=true \
     bc_rollout=true \
@@ -29,6 +29,8 @@ python train.py  -m \
     eval_freq=2500\
     min_std=0.1\
     uncertainty_weighting=false\
+    ignore_bc=true\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
+

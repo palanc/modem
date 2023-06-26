@@ -1,8 +1,8 @@
 #!/bin/bash
 
-python train.py  -m \
+python eval_agent.py  -m \
     task=franka-FrankaBinReorient_v2d  \
-    exp_name=bin_reorient_img-final-ensemble-10demo\
+    exp_name=bin_reorient_img-final-static-mix-safetyeval\
     iterations=1\
     discount=0.95 \
     train_steps=300000 \
@@ -23,8 +23,8 @@ python train.py  -m \
     val_min_w=0.0 \
     val_mean_w=1.0 \
     val_std_w=-10.0 \
-    mix_schedule='"linear(0.0,1.0,7500,107500)"' \
-    mixture_coef=1.0\
+    mix_schedule='"linear(0.0,1.0,2500,5000)"' \
+    mixture_coef=0.5\
     save_freq=7500\
     eval_freq=7500\
     seed_steps=7500 \
@@ -32,4 +32,5 @@ python train.py  -m \
     uncertainty_weighting=false\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
+    eval_dir='/checkpoint/plancaster/outputs/robohive_base/logs/franka-FrankaBinReorient_v2d/bin_reorient_img-final-static-mix' \
     hydra/launcher=slurm

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-python train.py  -m \
+python eval_agent.py  -m \
     task=franka-FrankaBinReorient_v2d  \
-    exp_name=bin_reorient_img-final-ensemble-10demo\
+    exp_name=bin_reorient_img-final-ignore-bc-safetyeval\
     iterations=1\
     discount=0.95 \
     train_steps=300000 \
@@ -30,6 +30,8 @@ python train.py  -m \
     seed_steps=7500 \
     min_std=0.1\
     uncertainty_weighting=false\
+    ignore_bc=true\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
+    eval_dir='/checkpoint/plancaster/outputs/robohive_base/logs/franka-FrankaBinReorient_v2d/bin_reorient_img-final-ignore-bc' \
     hydra/launcher=slurm

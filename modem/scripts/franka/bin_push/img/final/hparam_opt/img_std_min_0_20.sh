@@ -2,7 +2,7 @@
 
 python train.py  -m \
     task=franka-FrankaBinPush_v2d  \
-    exp_name=bin_push_img-final-ensemble-largeobj \
+    exp_name=bin_push_img-hparam-std-min-0-20 \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
@@ -27,7 +27,7 @@ python train.py  -m \
     mixture_coef=1.0\
     save_freq=2500\
     eval_freq=2500\
-    min_std=0.1\
+    min_std=0.2\
     uncertainty_weighting=false\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-python train.py  -m \
-    task=franka-FrankaBinPush_v2d  \
-    exp_name=bin_push_img-final-ensemble-largeobj \
+python eval_agent.py  -m \
+    task=franka-FrankaPlanarPush_v2d  \
+    exp_name=planar_push_img-static-mix-safetyeval \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
@@ -12,7 +12,7 @@ python train.py  -m \
     lr=3e-4 \
     batch_size=256 \
     episode_length=50 \
-    camera_views=[top_cam] \
+    camera_views=[right_cam] \
     left_crops=[0] \
     top_crops=[0] \
     action_repeat=1 \
@@ -23,12 +23,13 @@ python train.py  -m \
     val_min_w=0.0 \
     val_mean_w=1.0 \
     val_std_w=-10.00 \
-    mix_schedule='"linear(0.0,1.0,5000,105000)"' \
-    mixture_coef=1.0\
+    mix_schedule='"linear(0.0,1.0,2500,5000)"' \
+    mixture_coef=0.5\
     save_freq=2500\
     eval_freq=2500\
     min_std=0.1\
     uncertainty_weighting=false\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
+    eval_dir='/checkpoint/plancaster/outputs/robohive_base/logs/franka-FrankaPlanarPush_v2d/planar_push_img-static-mix'\
     hydra/launcher=slurm

@@ -5,5 +5,5 @@ python launch_rollouts.py \
     mode=evaluation \
     seed=0 \
     output_dir=/checkpoint/plancaster/outputs/robohive_base/demonstrations/franka-FrankaBinPush \
-    num_rollouts=1000 \
+    num_rollouts=100 \
     policy_path=/private/home/plancaster/robohive_base/hand_dapg/dapg/examples/bin_push_exp/iterations/best_policy.pickle

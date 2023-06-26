@@ -37,12 +37,12 @@ test
 
 python train.py  -m \
     task=franka-FrankaBinPick_v2d  \
-    exp_name=bin_pick_img-final-ensemble \
+    exp_name=bin_pick_img-final-ensemble-10demo \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
-    seed=1,2,3,4,5 \
-    demos=100 \
+    seed=2,5 \
+    demos=10 \
     img_size=224 \
     lr=3e-4 \
     batch_size=256 \

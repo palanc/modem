@@ -38,10 +38,24 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
     episode_successes = []
     episode_start_states = []
 
+    joint_configs = []
+    joint_vels = []
+    joint_accels = []
+    joint_forces = []
+    joint_jerks = []
+    cart_pos = []
+    cart_vels = []
+    cart_accels = []
+    cart_jerks = []
+    velocimeter_id = env.unwrapped.sim.model.sensor_adr[env.unwrapped.sim.model.sensor_name2id('palm_velocimeter')]
+    accelerometer_id = env.unwrapped.sim.model.sensor_adr[env.unwrapped.sim.model.sensor_name2id('palm_accelerometer')]
+    contact_forces = []
+
     ep_q_stats = []
     ep_q_success = []
     for i in range(cfg.eval_episodes):
         print('Episode {}'.format(i))
+        start = time.time()
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
@@ -60,6 +74,28 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
                                         t=t)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
+
+            joint_configs.append(env.unwrapped.sim.data.qpos.copy())
+            joint_vels.append(env.unwrapped.sim.data.qvel.copy())
+            joint_accels.append(env.unwrapped.sim.data.qacc.copy())
+            joint_forces.append(env.unwrapped.sim.data.qfrc_actuator.copy())
+            cart_pos.append(env.unwrapped.sim.data.site_xpos[env.unwrapped.grasp_sid].copy())
+            cart_vels.append(env.unwrapped.sim.data.sensordata[velocimeter_id:velocimeter_id+3])
+            cart_accels.append(env.unwrapped.sim.data.sensordata[accelerometer_id:accelerometer_id+3])
+
+            if t > 0:
+                joint_jerks.append(joint_accels[-1]-joint_accels[-2])
+                cart_jerks.append(cart_accels[-1]-cart_accels[-2])
+
+            if cfg.task.startswith('franka-FrankaBinReorient'):
+                contact_force = (env.unwrapped.sim.data.get_sensor('touch_sensor_tf')+
+                                 env.unwrapped.sim.data.get_sensor('touch_sensor_ff')+
+                                 env.unwrapped.sim.data.get_sensor('touch_sensor_pf'))
+            else:
+                contact_force = env.unwrapped.sim.data.get_sensor('touch_sensor_left')+env.unwrapped.sim.data.get_sensor('touch_sensor_right')
+            if contact_force > 1e-5:
+                contact_forces.append(contact_force)
+
             states.append(torch.tensor(env.state, dtype=torch.float32, device=agent.device))
             obs_unstacked.append(obs[0,-4:-1])
             actions.append(env.base_env().last_eef_cmd)
@@ -70,7 +106,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
                 video.record(env)
             t += 1
         ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
-
+        print('Rollout duration: {}'.format(time.time()-start))
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
@@ -108,7 +144,19 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
         traj_plot.save_traj(rollout_states, rollout_actions, 
                             episode_states, episode_actions, 
                             env_step)
-    return np.nanmean(episode_rewards), np.nanmean(episode_successes), ep_uncertainty_weight
+    safety_eval = {
+                'joint_configs': joint_configs,
+                'joint_vels': joint_vels,
+                'joint_accels': joint_accels,
+                'joint_forces': joint_forces,
+                'joint_jerks': joint_jerks,
+                'cart_pos': cart_pos,
+                'cart_vels': cart_vels,
+                'cart_accels': cart_accels,
+                'cart_jerks': cart_jerks,
+                'contact_forces': contact_forces
+                }        
+    return np.nanmean(episode_rewards), np.nanmean(episode_successes), safety_eval
 
 def load_checkpt_fp(cfg, checkpt_dir, bc_dir):
     model_fp = None
@@ -233,7 +281,8 @@ def train(cfg: dict):
             agent.post_bc_load()
         print(colored("\nPhase 2: seeding", "green", attrs=["bold"]))
 
-    agent.freeze_bc()
+    if not cfg.vanilla_modem:
+        agent.freeze_bc()
 
     if model_fp is not None: 
         if start_step > cfg.seed_steps:
@@ -388,12 +437,39 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
-            #eval_rew, eval_succ, uncertainty_weight = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
-            eval_rew, eval_succ, uncertainty_weight = evaluate(env, agent, cfg, step, env_step, L.video)
+            #eval_rew, eval_succ, safety_eval = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
+            eval_rew, eval_succ, safety_eval = evaluate(env, agent, cfg, step, env_step, L.video)
+
+            for key in safety_eval.keys():
+                eval_dir = work_dir/key
+                
+                if not os.path.exists(eval_dir):
+                    os.makedirs(eval_dir)
+
+                if len(safety_eval[key]) == 0:
+                    safety_eval_val = np.array([])
+                    safety_eval_mean = 0.0
+                    safety_eval_std = 0.0
+                elif isinstance(safety_eval[key][0], float):
+                    safety_eval_val = np.array(safety_eval[key])
+                    safety_eval_mean = safety_eval_val.mean()
+                    safety_eval_std = safety_eval_val.std()
+                elif isinstance(safety_eval[key][0], np.ndarray):
+                    safety_eval_val = np.stack(safety_eval[key])
+                    safety_eval_val_norm = np.linalg.norm(safety_eval_val, axis=1)
+                    safety_eval_mean = safety_eval_val_norm.mean()
+                    safety_eval_std = safety_eval_val_norm.std()
+                common_metrics.update({
+                                        f'{str(key)}_mean': safety_eval_mean,
+                                        f'{str(key)}_std': safety_eval_std
+                })
+                eval_fp = eval_dir / f"{str(key)}{str(step)}.pickle"
+                torch.save(safety_eval_val, eval_fp)
+                
             print('Ep Reward {}, Ep Succ {}'.format(eval_rew, eval_succ))
             
             common_metrics.update(
-                {"episode_reward": eval_rew, "episode_success": eval_succ, 'uncertainty_weight': uncertainty_weight}
+                {"episode_reward": eval_rew, "episode_success": eval_succ}
             )
             L.log(common_metrics, category="eval")
 

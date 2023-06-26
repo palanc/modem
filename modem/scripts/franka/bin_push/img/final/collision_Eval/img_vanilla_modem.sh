@@ -1,8 +1,8 @@
 #!/bin/bash
 
-python train.py  -m \
+python eval_agent.py  -m \
     task=franka-FrankaBinPush_v2d  \
-    exp_name=bin_push_img-final-ensemble-largeobj \
+    exp_name=bin_push_img-final-vanilla-modem-safety-eval \
     iterations=1\
     discount=0.95 \
     train_steps=200000 \
@@ -19,16 +19,17 @@ python train.py  -m \
     plan_policy=true \
     bc_rollout=true \
     bc_q_pol=true \
-    ensemble_size=6 \
-    val_min_w=0.0 \
-    val_mean_w=1.0 \
-    val_std_w=-10.00 \
-    mix_schedule='"linear(0.0,1.0,5000,105000)"' \
+    ensemble_size=2 \
+    val_min_w=1.0 \
+    val_mean_w=0.0 \
+    val_std_w=0.00 \
+    mix_schedule='"linear(0.0,1.0,0,2500)"' \
     mixture_coef=1.0\
     save_freq=2500\
     eval_freq=2500\
-    min_std=0.1\
     uncertainty_weighting=false\
+    vanilla_modem=true\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
+    eval_dir='/checkpoint/plancaster/outputs/robohive_base/logs/franka-FrankaBinPush_v2d/bin_push_img-final-vanilla-modem' \
     hydra/launcher=slurm

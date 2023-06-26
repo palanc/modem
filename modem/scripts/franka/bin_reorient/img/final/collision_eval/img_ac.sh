@@ -37,9 +37,9 @@ python train.py  \
     hydra/launcher=slurm
 test
 
-python train.py  -m \
+python eval_agent.py  -m \
     task=franka-FrankaBinReorient_v2d  \
-    exp_name=bin_reorient_img-final-ac-10demo\
+    exp_name=bin_reorient_img-final-ac-10demo-safetyeval\
     iterations=1\
     discount=0.95 \
     train_steps=300000 \
@@ -69,4 +69,5 @@ python train.py  -m \
     uncertainty_weighting=false\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
+    eval_dir='/checkpoint/plancaster/outputs/robohive_base/logs/franka-FrankaBinReorient_v2d/bin_reorient_img-final-ac-10demo' \
     hydra/launcher=slurm

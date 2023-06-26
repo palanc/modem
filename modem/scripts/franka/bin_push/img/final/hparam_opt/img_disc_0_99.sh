@@ -2,9 +2,9 @@
 
 python train.py  -m \
     task=franka-FrankaBinPush_v2d  \
-    exp_name=bin_push_img-final-ensemble-largeobj \
+    exp_name=bin_push_img-hparam-disc-0-99 \
     iterations=1\
-    discount=0.95 \
+    discount=0.99 \
     train_steps=200000 \
     seed=1,2,3,4,5 \
     demos=10 \

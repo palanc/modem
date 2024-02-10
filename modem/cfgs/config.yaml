@@ -48,7 +48,7 @@ mlp_dim: 512
 latent_dim: 50
 
 # wandb (required: fill in your details)
-wandb_project: corl
+wandb_project: corl-rebuttal-torquepenalty
 wandb_entity: palanc
 
 # dirs (required: fill in your details)
@@ -113,6 +113,8 @@ reorient_drop_goal_y: ???
 reorient_knock_height: ???
 limit_mix_sched: false
 
+torque_scale: 1.0
+torque_penalty: 0.0
 hydra:
     job:
         name: ${exp_name}
@@ -124,4 +126,4 @@ hydra:
         mem_gb: 700
         name: ${hydra.job.name}
         submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-        partition: learnfair
+        partition: learnlab

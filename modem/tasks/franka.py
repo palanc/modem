@@ -271,7 +271,7 @@ class FrankaWrapper(gym.Wrapper):
         self._frames.append(obs)
         info["success"] = info["solved"]
         if not self.cfg.dense_reward:
-            reward = float(info["success"])# - 1.0
+            reward = float(info["success"]) - self.cfg.torque_penalty*np.linalg.norm(self.env.unwrapped.sim.data.qfrc_actuator.copy()[:7])
         if self.cfg.real_robot:
             reward = 0.0#-1.0
         return self._stacked_obs(), reward, False, info
@@ -434,7 +434,7 @@ def recompute_real_rwd(cfg, states, obs=None, col_thresh=None):
 def make_franka_env(cfg):
     env_id = cfg.task.split("-", 1)[-1] + "-v0"
     reward_mode = 'dense' if cfg.dense_reward else 'sparse'
-    env = gym.make(env_id, **{'reward_mode': reward_mode, 'is_hardware': cfg.real_robot})
+    env = gym.make(env_id, **{'reward_mode': reward_mode, 'is_hardware': cfg.real_robot, 'torque_scale': cfg.torque_scale})
     env = FrankaWrapper(env, cfg)
     env = TimeLimit(env, max_episode_steps=cfg.episode_length)
 

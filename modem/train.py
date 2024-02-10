@@ -69,6 +69,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
                 video.init(env, enabled=(ep_count < 5))
             else:
                 video.init(env, enabled=(ep_count == 0))
+        success_count = 0.0
         print('Step {}'.format(step))
         start_time = time.time()
         while not done:              
@@ -78,7 +79,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
                                         t=t)   
             
             obs, reward, done, info = env.step(action.cpu().numpy())
-
+            success_count += float(info["success"])
             joint_configs.append(env.unwrapped.sim.data.qpos.copy())
             joint_vels.append(env.unwrapped.sim.data.qvel.copy())
             joint_accels.append(env.unwrapped.sim.data.qacc.copy())
@@ -110,8 +111,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
                 video.record(env)
             t += 1
         print('Episode length: {}'.format(time.time()-start_time))
-        ep_success = np.sum(ep_reward)>=5#info.get('success', 0)
-        print('Rollout duration: {}'.format(time.time()-start))
+        ep_success = success_count>=5#np.sum(ep_reward)>=5#info.get('success', 0)
         if cfg.real_robot:
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
@@ -337,12 +337,14 @@ def train(cfg: dict):
             ep_uncertainty_weight = 0.0
             if cfg.real_robot:
                 L.video.init(env, enabled=True)
+            success_count = 0.0
             ep_start = time.time()
             while not episode.done:
                 action, q_stats = agent.plan(obs, env.state, step=step, t=t) 
                 trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
                 obs, reward, done, info = env.step(action.cpu().numpy())
                 episode += (obs, env.state, action, reward, done)
+                success_count += float(info["success"])
                 if cfg.real_robot:
                     L.video.record(env)
                 if q_stats is not None:
@@ -370,7 +372,8 @@ def train(cfg: dict):
                     print('Ep reward {}'.format(episode.cumulative_reward))
                 L.video.save(step*cfg.action_repeat, key="videos/train_video")
             else:
-                task_success = np.sum(episode.cumulative_reward) >= 5
+                #task_success = np.sum(episode.cumulative_reward) >= 5
+                task_success = (success_count >= 5)
                 
 
             if len(ep_q_std) > 0:
@@ -482,18 +485,22 @@ def train(cfg: dict):
                 if len(safety_eval[key]) == 0:
                     safety_eval_val = np.array([])
                     safety_eval_mean = 0.0
+                    safety_eval_max = 0.0
                     safety_eval_std = 0.0
                 elif isinstance(safety_eval[key][0], float):
                     safety_eval_val = np.array(safety_eval[key])
                     safety_eval_mean = safety_eval_val.mean()
+                    safety_eval_max = np.abs(safety_eval_val).max()
                     safety_eval_std = safety_eval_val.std()
                 elif isinstance(safety_eval[key][0], np.ndarray):
                     safety_eval_val = np.stack(safety_eval[key])
+                    safety_eval_max = np.abs(safety_eval_val).max()
                     safety_eval_val_norm = np.linalg.norm(safety_eval_val, axis=1)
                     safety_eval_mean = safety_eval_val_norm.mean()
                     safety_eval_std = safety_eval_val_norm.std()
                 common_metrics.update({
                                         f'{str(key)}_mean': safety_eval_mean,
+                                        f'{str(key)}_max': safety_eval_max,
                                         f'{str(key)}_std': safety_eval_std
                 })
                 eval_fp = eval_dir / f"{str(key)}{str(step)}.pickle"

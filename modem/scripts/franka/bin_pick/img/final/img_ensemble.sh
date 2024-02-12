@@ -1,6 +1,5 @@
 #!/bin/bash
 
-<<test
 python train.py \
     task=franka-FrankaBinPick_v2d  \
     exp_name=test-final-img-ensemble \
@@ -32,9 +31,9 @@ python train.py \
     uncertainty_weighting=false\
     logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base'
-test
 
 
+<<com
 python train.py  -m \
     task=franka-FrankaBinPick_v2d  \
     exp_name=bin_pick_img-final-ensemble-10demo \
@@ -68,3 +67,4 @@ python train.py  -m \
     demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
 
+com

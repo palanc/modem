@@ -1,4 +1,0 @@
-# @package _global_
-hydra:
-    launcher:
-        _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher

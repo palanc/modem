@@ -19,7 +19,7 @@ from pathlib import Path
 from cfg_parse import parse_cfg
 from env import make_env, set_seed
 from algorithm.tdmpc import TDMPC
-from algorithm.helper import Episode, get_demos,get_demos_h5, ReplayBuffer, linear_schedule, do_policy_rollout, trace2episodes
+from algorithm.helper import Episode, get_demos, ReplayBuffer, linear_schedule, do_policy_rollout, trace2episodes
 from termcolor import colored
 from copy import deepcopy
 import logger
@@ -282,7 +282,7 @@ def train(cfg: dict):
         if cfg.bc_only:
             valid_demo_buffer = buffer
 
-        demos = get_demos(cfg, env) if not cfg.h5_demos else get_demos_h5(cfg, env)
+        demos = get_demos(cfg, env)
 
         for i,episode in enumerate(demos):
             if valid_demo_buffer is not None and i % 10 == 0:

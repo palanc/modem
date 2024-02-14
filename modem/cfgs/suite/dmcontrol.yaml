@@ -1,7 +1,0 @@
-suite: dmcontrol
-iterations: 6
-episode_length: 500
-img_size: 224
-lr: 3e-4
-batch_size: 256
-demo_schedule: linear(0.75, 0.25, 50000)

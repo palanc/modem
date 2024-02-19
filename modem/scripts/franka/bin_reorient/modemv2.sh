@@ -31,9 +31,7 @@ python train.py  \
     seed_steps=300 \
     eval_episodes=2\
     min_std=0.1\
-    uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base'
+    uncertainty_weighting=false
 test
 
 python train.py  -m \
@@ -66,6 +64,4 @@ python train.py  -m \
     seed_steps=7500 \
     min_std=0.1\
     uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm

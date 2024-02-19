@@ -29,9 +29,7 @@ python train.py \
     mix_schedule='"linear(0.0,1.0,300,600)"' \
     mixture_coef=1.0\
     episode_length=100 \
-    uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base'
+    uncertainty_weighting=false
 test
 
 
@@ -64,7 +62,5 @@ python train.py  -m \
     eval_freq=2500\
     min_std=0.1\
     uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
 

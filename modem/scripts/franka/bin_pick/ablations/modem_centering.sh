@@ -32,11 +32,9 @@ python train.py  \
     min_std=0.1\
     ignore_bc=false\
     uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     seed_steps=300 \
     eval_episodes=3\
-    eval_freq=300\
+    eval_freq=300
 
 test
 
@@ -71,7 +69,5 @@ python train.py  -m \
     min_std=0.1\
     ignore_bc=false\
     uncertainty_weighting=false\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm
 

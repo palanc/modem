@@ -31,6 +31,4 @@ python train.py  -m \
     eval_freq=7500\
     seed_steps=7500 \
     min_std=0.1\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm

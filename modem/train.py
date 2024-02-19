@@ -29,6 +29,7 @@ from robohive.logger.grouped_datasets import Trace
 torch.backends.cudnn.benchmark = True
 import pickle
 import algorithm.helper as h
+import git
 
 def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None, policy_rollout=False):
     """Evaluate a trained agent and optionally save a video."""
@@ -222,10 +223,12 @@ def train(cfg: dict):
     assert torch.cuda.is_available()
     cfg = parse_cfg(cfg)
     set_seed(cfg.seed)
-    work_dir = Path(cfg.logging_dir) / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
+    
+    repo_path = git.Repo('.', search_parent_directories=True).working_tree_dir
+    work_dir = Path(repo_path) / "modem" / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
 
-    episode_dir = str(cfg.logging_dir) + f"/episodes/{cfg.task}/{cfg.exp_name}/{str(cfg.seed)}" 
+    episode_dir = repo_path + f"modem/episodes/{cfg.task}/{cfg.exp_name}/{str(cfg.seed)}" 
     if (not os.path.isdir(episode_dir)):
         os.makedirs(episode_dir)
 

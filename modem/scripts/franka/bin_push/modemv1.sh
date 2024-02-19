@@ -29,6 +29,4 @@ python train.py  -m \
     eval_freq=2500\
     uncertainty_weighting=false\
     vanilla_modem=true\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm

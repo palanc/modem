@@ -15,6 +15,7 @@ from modem.utils.move_utils import update_grasps, check_grasp_success, open_grip
 from modem.utils.color_threshold import ColorThreshold
 import time
 from pathlib import Path
+import git
 
 class FrankaTask(Enum):
     BinPick=1
@@ -301,6 +302,7 @@ class FrankaWrapper(gym.Wrapper):
 
     def post_process_task(self, obs, states, eval_mode=True):
         assert(self.cfg.real_robot)
+        logging_dir = git.Repo('.', search_parent_directories=True).working_tree_dir + "/modem"
         success = False
         rewards = None
         retry_episode = False
@@ -328,9 +330,9 @@ class FrankaWrapper(gym.Wrapper):
                             
                         while(len(grasp_centers) <= 0):
                             #grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img, 
-                            #                                                        out_dir=self.cfg.logging_dir+'/debug')
+                            #                                                        out_dir=logging_dir+'/debug')
                             grasp_centers, filtered_boxes, img_masked = update_grasps(img=latest_img,
-                                                                                    out_dir=self.cfg.logging_dir+'/debug',
+                                                                                    out_dir=logging_dir+'/debug',
                                                                                     min_pixels=100,
                                                                                     luv_thresh=True,
                                                                                     limit_yaw=True)                                                                                     
@@ -367,7 +369,7 @@ class FrankaWrapper(gym.Wrapper):
             rewards = recompute_real_rwd(self.cfg, states, obs, self.col_thresh)
             success = torch.sum(rewards).item() >= 4.999
         elif self.cfg.task.startswith('franka-FrankaBinReorient'):
-            output_dir = Path(self.cfg.logging_dir) / "logs" / self.cfg.task / self.cfg.exp_name / str(self.cfg.seed)
+            output_dir = Path(logging_dir) / "logs" / self.cfg.task / self.cfg.exp_name / str(self.cfg.seed)
             output_dir = str(output_dir)
             reorient_success, reset_img = check_reorient_success(self.env.unwrapped, obs=None,
                                                                  out_dir=output_dir, 

@@ -30,6 +30,4 @@ python train.py  -m \
     uncertainty_weighting=false\
     vanilla_modem=true\
     min_std=0.1\
-    logging_dir='/checkpoint/plancaster/outputs/robohive_base' \
-    demo_dir='/checkpoint/plancaster/outputs/robohive_base' \
     hydra/launcher=slurm

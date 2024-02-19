@@ -24,6 +24,7 @@ from tasks.franka import recompute_real_rwd, FrankaTask
 from robohive.utils.tensor_utils import stack_tensor_dict_list
 from robohive.utils.dict_utils import flatten_dict, dict_numpify
 from robohive.logger.grouped_datasets import Trace
+import git
 
 __REDUCE__ = lambda b: "mean" if b else "none"
 
@@ -293,105 +294,6 @@ class Episode(object):
         self.done = done
         self._idx += 1
 
-def get_demos_h5(cfg, env):
-    fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
-    episodes = []
-    assert(cfg.task.startswith('franka-'))
-
-    for fp in fps:
-        paths = h5py.File(fp,'r')
-        for trial in paths.keys():
-            if len(episodes) >= cfg.demos:
-                break
-            if not bool(paths[trial]['config']['solved'][0]):
-                continue
-            
-            # Get images
-            views = []            
-            if cfg.img_size <= 0:
-                views.append(np.zeros((cfg.episode_length+1,3,10,10)))
-            else:
-                for i, cam in enumerate(cfg.camera_views):
-                    rgb_key = 'rgb:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
-                    d_key = 'd:'+cam+':'+str(cfg.img_size)+'x'+str(cfg.img_size)+':2d'
-                    assert(rgb_key in paths[trial]['env_infos']['visual_dict'] 
-                           and d_key in paths[trial]['env_infos']['visual_dict'])
-                    lc = cfg.left_crops[i]
-                    tc = cfg.top_crops[i]                
-                    rgb_imgs = paths[trial]['env_infos']['visual_dict'][rgb_key][:].transpose(0,3,1,2)
-                    rgb_imgs = rgb_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
-                    depth_imgs = np.expand_dims(paths[trial]['env_infos']['visual_dict'][d_key][:],axis=1)
-                    depth_imgs = depth_imgs[:cfg.episode_length+1,:,tc:tc+cfg.img_size,lc:lc+cfg.img_size]
-                    views.append(np.concatenate([rgb_imgs, depth_imgs], axis=1))
-            obs = np.stack(views, axis=1)
-
-            qp = paths[trial]['env_infos']['obs_dict']['qp'][:]
-            qv = paths[trial]['env_infos']['obs_dict']['qv'][:]
-            grasp_pos = paths[trial]['env_infos']['obs_dict']['grasp_pos'][:]
-            grasp_rot = paths[trial]['env_infos']['obs_dict']['grasp_rot'][:]
-            obj_err = paths[trial]['env_infos']['obs_dict']['object_err'][:]
-            tar_err = paths[trial]['env_infos']['obs_dict']['target_err'][:]
-
-            if cfg.img_size > 0:
-                state = np.concatenate([qp[:9],
-                                        qv[:9],
-                                        grasp_pos,
-                                        grasp_rot], axis=1)
-            else:   
-                state = np.concatenate([qp,
-                                        qv,
-                                        grasp_pos,
-                                        grasp_rot,
-                                        obj_err,
-                                        tar_err], axis=1)
-
-            state = torch.tensor(state, dtype=torch.float32)
-                             
-            actions = paths[trial]['actions'][:cfg.episode_length].clip(-1,1)
-
-            assert actions.shape[1] == 7  
-            if 'BinPush' in cfg.task:
-                franka_task = FrankaTask.BinPush
-            elif 'PlanarPush' in cfg.task:
-                franka_task = FrankaTask.PlanarPush
-            elif 'BinPick' in cfg.task:
-                franka_task = FrankaTask.BinPick
-            else:
-                raise NotImplementedError()
-
-            if franka_task == FrankaTask.BinPick:
-                aug_actions = np.zeros((actions.shape[0],6),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
-                aug_actions[:,3] = np.cos(yaw)
-                aug_actions[:,4] = np.sin(yaw)
-                aug_actions[:,5] = actions[:,6]
-            elif franka_task == FrankaTask.BinPush: 
-                aug_actions = np.zeros((actions.shape[0],3),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-            elif franka_task == FrankaTask.PlanarPush:
-                aug_actions = np.zeros((actions.shape[0],5),dtype=np.float32)
-                aug_actions[:,:3] = actions[:,:3]
-                yaw = (0.5*actions[:,5]+0.5)*(env.unwrapped.pos_limits['eef_high'][5]-env.unwrapped.pos_limits['eef_low'][5])+env.unwrapped.pos_limits['eef_low'][5]
-                aug_actions[:,3] = np.cos(yaw)
-                aug_actions[:,4] = np.sin(yaw)
-            else:
-                raise NotImplementedError()
-
-            actions = aug_actions
-
-            if cfg.real_robot:
-                rewards = recompute_real_rwd(cfg, state, obs[:,0,:3], env.col_thresh)
-            else:                
-                rewards = np.array(paths[trial]['env_infos']['solved'][:cfg.episode_length], dtype=np.float32)#-1.
-            
-            episode = Episode.from_trajectory(cfg, obs, state, actions, rewards)
-            episodes.append(episode)
-
-            if len(episodes) % 10 == 0:
-                print('Loaded demo {} of {}'.format(len(episodes),cfg.demos))
-    assert(len(episodes)==cfg.demos)
-    return episodes
 
 def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
 
@@ -554,9 +456,10 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
     return episodes
 
 def get_demos(cfg, env):
-    fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
+    demo_dir = git.Repo('.', search_parent_directories=True).working_tree_dir + "/modem"
+    fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
     if len(fps) == 0:
-        fps = glob.glob(str(Path(cfg.demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
+        fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))
     episodes = []
     assert(cfg.task.startswith('franka-'))
 

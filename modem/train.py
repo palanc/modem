@@ -256,12 +256,10 @@ def train(cfg: dict):
 
     # Load past episodes
 
-    if True:#cfg.real_robot:
-        for i in range(start_step//cfg.episode_length):
-            trace_fn = 'rollout'+f'{(i):010d}.pickle'
-            trace_path = episode_dir+'/'+trace_fn  
-            print(trace_path) 
-            assert(os.path.isfile(trace_path) )
+    for i in range(start_step//cfg.episode_length):
+        trace_fn = 'rollout'+f'{(i):010d}.pickle'
+        trace_path = episode_dir+'/'+trace_fn  
+        if os.path.isfile(trace_path):
             paths = Trace.load(trace_path)
             paths_episodes = trace2episodes(cfg=cfg,
                                             env=env,
@@ -272,11 +270,15 @@ def train(cfg: dict):
             print('Loaded training episode {} reward {}'.format(i,torch.sum(paths_episodes[0].reward).item()))
             buffer += paths_episodes[0]       
             print('Loaded episode {} of {}'.format(i+1,start_step//cfg.episode_length))
-        print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
-        #consec_train_fails = 0
-        #RESET_PI_THRESH = 3
-        #reset_pi = HeuristicPolicyReal(env=env.base_env(), 
-        #                               seed=cfg.seed)
+        else:
+            print(
+                colored(
+                    'Failed to find episode at {}'.format(trace_path),
+                    "yellow",
+                    attrs=["bold"],
+                )
+            )            
+    print('Loaded {} rollouts'.format(len(buffer)//cfg.episode_length))
 
     # Load demonstrations
     if cfg.get("demos", 0) > 0:
@@ -344,7 +346,8 @@ def train(cfg: dict):
             ep_start = time.time()
             while not episode.done:
                 action, q_stats = agent.plan(obs, env.state, step=step, t=t) 
-                trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
+                if cfg.save_episodes:
+                    trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
                 obs, reward, done, info = env.step(action.cpu().numpy())
                 episode += (obs, env.state, action, reward, done)
                 success_count += float(info["success"])
@@ -356,7 +359,8 @@ def train(cfg: dict):
                 t+=1
             print('Train ep duration {}'.format(time.time()-ep_start))
 
-            trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
+            if cfg.save_episodes:
+                trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
             assert (
                 len(episode) == cfg.episode_length
             ), f"Episode length {len(episode)} != {cfg.episode_length}"
@@ -385,46 +389,14 @@ def train(cfg: dict):
                 else:
                     agent.fail_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
 
-            for success_idx in range(cfg.episode_length+1):
-                trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
-            trace_fn = trace.name + '.pickle'
-            trace_path = episode_dir+'/'+trace_fn
-            print('Saving {}'.format(trace_path))
-            trace.stack()
-            trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
-        
-        '''
-        paths = Trace.load(trace_path)
-        paths_episodes = trace2episodes(cfg=cfg,
-                                        env=env,
-                                        trace=paths,
-                                        exclude_fails=False,
-                                        is_demo=False)
-        loaded_ep = paths_episodes[0]
-        import cv2
-        for i in range(cfg.episode_length+1):
-            diff = torch.sum(episode.obs[i,0,-4:-1]-loaded_ep.obs[i,0,-4:-1])
-            if diff > 0:
-                ep_img = episode.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
-                load_ep_img = loaded_ep.obs[i,1,-4:-1].cpu().numpy().transpose(1,2,0)
-                cv2.imwrite('/home/plancaster/Pictures/{}ep_img.png'.format(i), ep_img)
-                cv2.imwrite('/home/plancaster/Pictures/{}load_ep_img.png'.format(i), load_ep_img)
-
-        #print('diff {}'.format(episode.obs[0,0,-1,0:3,:10]-loaded_ep.obs[0,0,-1,0:3,:10]))
-        t_buff1 = ReplayBuffer(cfg)
-        t_buff1 += episode
-        t_buff2 = ReplayBuffer(cfg)
-        t_buff2 += loaded_ep
-        print('obs diff {}'.format(torch.sum(t_buff1._obs[:cfg.episode_length]-t_buff2._obs[:cfg.episode_length])))
-        print('last obs diff {}'.format(torch.sum(t_buff1._last_obs[0]-t_buff2._last_obs[0])))
-        print('state diff {}'.format(torch.sum(torch.abs(t_buff1._state[:cfg.episode_length]-t_buff2._state[:cfg.episode_length]))))
-        print('last state diff {}'.format(torch.sum(torch.abs(t_buff1._last_state[0]-t_buff2._last_state[0]))))
-        print('action diff {}'.format(torch.sum(torch.abs(t_buff1._action[:cfg.episode_length]-t_buff2._action[:cfg.episode_length]))))
-        print('reward diff {}'.format(torch.sum(torch.abs(t_buff1._reward[:cfg.episode_length]-t_buff2._reward[:cfg.episode_length]))))
-        print('done diff {}'.format(not (episode.done ^ loaded_ep.done)))
-        print('cum rew diff {}'.format(episode.cumulative_reward-loaded_ep.cumulative_reward))
-        exit()
-        '''
+            if cfg.save_episodes:
+                for success_idx in range(cfg.episode_length+1):
+                    trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
+                trace_fn = trace.name + '.pickle'
+                trace_path = episode_dir+'/'+trace_fn
+                print('Saving {}'.format(trace_path))
+                trace.stack()
+                trace.save(trace_name=trace_path, verify_length=True, f_res=np.float64)
 
         buffer += episode
 

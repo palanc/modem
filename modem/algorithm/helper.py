@@ -9,20 +9,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import glob
-from PIL import Image
 from pathlib import Path
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from typing import Union
 from env import make_env
 import multiprocessing as mp
-import concurrent.futures
 from copy import deepcopy
-import h5py
-import pickle
 from tasks.franka import recompute_real_rwd, FrankaTask
 from robohive.utils.tensor_utils import stack_tensor_dict_list
-from robohive.utils.dict_utils import flatten_dict, dict_numpify
 from robohive.logger.grouped_datasets import Trace
 import git
 
@@ -353,7 +347,6 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         obj_err = pdata['env_infos/obs_dict/object_err'][:cfg.episode_length+1]
         tar_err = pdata['env_infos/obs_dict/target_err'][:cfg.episode_length+1]
         assert((np.abs(qp[1:]-qp[0]) > 1e-5).any())
-        #assert((np.abs(qv[1:]-qv[0]) > 1e-5).any())
         assert((np.abs(grasp_pos[1:]-grasp_pos[0]) > 1e-5).any())
         assert((np.abs(grasp_rot[1:]-grasp_rot[0]) > 1e-5).any())
 
@@ -395,7 +388,6 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
         if not cfg.real_robot and (cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush')):
             actions = np.clip(actions,-1.0,1.0)
 
-        #assert((actions >= -1.01).all() and (actions <= 1.01).all())
         if not((actions >= -1.0).all() and (actions <= 1.0).all()):
             print('Found ep w/ oob actions, min {}, max {}'.format(actions.min(), actions.max()))
         actions = np.clip(actions,-1.0,1.0)

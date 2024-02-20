@@ -103,10 +103,7 @@ class QPlot:
  
         ax.legend()
 
-    # q: (# traj, episode len)
     def log_q_vals(self, step, q_stats, q_success):
-                   #max_frozen_min, max_frozen_mean, max_frozen_std, min_frozen_std,
-                   #max_model_min, max_model_mean, max_model_std, min_model_std):
         successes = np.sum(q_success)
         fails = len(q_success) - successes
         max_frozen = (np.empty((fails, len(q_stats[0]))),np.empty((successes, len(q_stats[0]))))

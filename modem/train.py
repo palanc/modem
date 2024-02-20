@@ -19,7 +19,7 @@ from pathlib import Path
 from cfg_parse import parse_cfg
 from env import make_env, set_seed
 from algorithm.tdmpc import TDMPC
-from algorithm.helper import Episode, get_demos, ReplayBuffer, linear_schedule, do_policy_rollout, trace2episodes
+from algorithm.helper import Episode, get_demos, ReplayBuffer, do_policy_rollout, trace2episodes
 from termcolor import colored
 from copy import deepcopy
 import logger
@@ -27,7 +27,6 @@ import hydra
 from robohive.logger.grouped_datasets import Trace
 
 torch.backends.cudnn.benchmark = True
-import pickle
 import algorithm.helper as h
 import git
 
@@ -55,10 +54,8 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
 
     ep_q_stats = []
     ep_q_success = []
-    #for i in range(cfg.eval_episodes):
     ep_count = 0
     while ep_count < cfg.eval_episodes:
-        print('Episode {}'.format(ep_count))
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         episode_start_states.append(env.unwrapped.get_env_state())
         states = [torch.tensor(env.state, dtype=torch.float32, device=agent.device)]
@@ -71,7 +68,7 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
             else:
                 video.init(env, enabled=(ep_count == 0))
         success_count = 0.0
-        print('Step {}'.format(step))
+
         start_time = time.time()
         while not done:              
             action, q_stat = agent.plan(obs, env.state, 
@@ -111,9 +108,10 @@ def evaluate(env, agent, cfg, step, env_step, video, traj_plot=None, q_plot=None
             if video:
                 video.record(env)
             t += 1
-        print('Episode length: {}'.format(time.time()-start_time))
-        ep_success = success_count>=5#np.sum(ep_reward)>=5#info.get('success', 0)
+            
+        ep_success = success_count>=5
         if cfg.real_robot:
+            print('Episode length: {}'.format(time.time()-start_time))
             states = torch.stack(states, dim=0)
             obs_unstacked = np.stack(obs_unstacked, axis=0)
             task_success, new_rewards, retry_episode = env.post_process_task(obs_unstacked, states, eval_mode=True)
@@ -255,7 +253,6 @@ def train(cfg: dict):
 
 
     # Load past episodes
-
     for i in range(start_step//cfg.episode_length):
         trace_fn = 'rollout'+f'{(i):010d}.pickle'
         trace_path = episode_dir+'/'+trace_fn  
@@ -357,7 +354,8 @@ def train(cfg: dict):
                     ep_q_std.append(q_stats['model_std_topk'])
                     ep_uncertainty_weight += q_stats['uncertainty_weight']
                 t+=1
-            print('Train ep duration {}'.format(time.time()-ep_start))
+            if cfg.real_robot:    
+                print('Train ep duration {}'.format(time.time()-ep_start))
 
             if cfg.save_episodes:
                 trace.append_datums(group_key='Trial0', dataset_key_val=env.get_trace_dict(action.cpu().numpy()))
@@ -379,10 +377,8 @@ def train(cfg: dict):
                     print('Ep reward {}'.format(episode.cumulative_reward))
                 L.video.save(step*cfg.action_repeat, key="videos/train_video")
             else:
-                #task_success = np.sum(episode.cumulative_reward) >= 5
                 task_success = (success_count >= 5)
                 
-
             if len(ep_q_std) > 0:
                 if task_success:
                     agent.succ_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
@@ -390,7 +386,7 @@ def train(cfg: dict):
                     agent.fail_q_std.append(torch.tensor(ep_q_std, dtype=torch.float32, device=agent.device))
 
             if cfg.save_episodes:
-                for success_idx in range(cfg.episode_length+1):
+                for _ in range(cfg.episode_length+1):
                     trace.append_datums(group_key='Trial0', dataset_key_val={'success':task_success})
                 trace_fn = trace.name + '.pickle'
                 trace_path = episode_dir+'/'+trace_fn
@@ -448,7 +444,6 @@ def train(cfg: dict):
         # Evaluate agent periodically
         if env_step % cfg.eval_freq == 0:
             
-            #eval_rew, eval_succ, safety_eval = evaluate(env, agent, cfg, step, env_step, L.video, L.traj_plot, L.q_plot)
             eval_rew, eval_succ, safety_eval = evaluate(env, agent, cfg, step, env_step, L.video)
 
             for key in safety_eval.keys():

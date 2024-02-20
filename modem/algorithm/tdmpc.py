@@ -103,39 +103,7 @@ class TOLD(nn.Module):
         x = torch.cat([z, a], dim=-1)
         return self._dynamics(x), self._reward(x)
 
-    '''
-    def pi(self, z, z_learned=None, std=0, compute_learned=True):
-        """Samples an action from the learned policy (pi)."""
-        ac_end = 1 if not compute_learned else len(self._acs)
-        mus = []
-        for i in range(len(ac_end)):
-            if i < 1:
-                mus.append(torch.tanh(self._acs[i]._pi(z)))
-            else:
-                mus.append(torch.tanh(self._acs[i]._pi(z_learned)))
-        mus = torch.stack(mus, dim=0)
-        if std > 0:
-            std = torch.ones_like(mus) * std
-            return h.TruncatedNormal(mus, std).sample(clip=0.3)
-        return mus
-
-    def Q(self, z, z_learned, a):
-        """Predict state-action value (Q)."""
-        x = torch.cat([z, a], dim=-1)
-        x_learned = torch.cat([z_learned, a], dim=-1)
-        
-        q_vals = []
-
-        for i in range(len(self._acs)):
-            if i < 1:
-                q_vals.append(torch.stack([self._acs[i]._Q1(x), self._acs[i]._Q2(x)],dim=0))
-            else:
-                q_vals.append(torch.stack([self._acs[i]._Q1(x_learned),self._acs[i]._Q2(x_learned)],dim=0))
-        q_vals = torch.stack(q_vals, dim=0)
-
-        return q_vals
-    '''
-
+    
 class TDMPC:
     """
     Implementation of TD-MPC learning + inference.
@@ -382,12 +350,6 @@ class TDMPC:
                                                                                 actions_learned=actions_learned,
                                                                                 horizon=horizon)
 
-
-            
-            #val_learn_weight = torch.pow(torch.maximum(G_std - self.val_std_mean,0),2)
-            #val_learn_weight = -self.cfg.val_std_w * val_learn_weight / self.val_std_std
-            #val_learn_weight = torch.exp(val_learn_weight)
-            #value_learn = val_learn_weight*G_mean
             if value_bc is not None:
                 value_bc = value_bc.nan_to_num(-self.cfg.episode_length).squeeze(1)
                 elite_actions_bc, score_bc = self.compute_elite_actions(actions_bc, value_bc, num_bc_elites)
@@ -434,38 +396,12 @@ class TDMPC:
                 if self.cfg.vanilla_modem:
                     self._prev_mean = mean_learned
 
-        #learn_elite_idxs = torch.topk(
-        #    value_learn, self.cfg.num_elites, dim=0
-        #).indices
-        #q_std_best = G_std[learn_elite_idxs[0]].item()
-        #q_std_topk = torch.mean(G_std[learn_elite_idxs]).item()
-
-        '''
-        if self.cfg.uncertainty_weighting and len(self.succ_q_std) >= 2 and len(self.fail_q_std) >= 2:
-            ep_succ_q_std = torch.stack(list(self.succ_q_std), dim=0)[:,t]
-            assert(len(ep_succ_q_std.shape)==1, 'Unexpected ep_succ_q_std shape {}'.format(ep_succ_q_std.shape))
-            success_mean = torch.mean(ep_succ_q_std)
-            success_std = torch.std(ep_succ_q_std)
-            success_w = torch.exp(torch.pow(success_mean-q_std_topk,2)/success_std).item()
-
-            ep_fail_q_std = torch.stack(list(self.fail_q_std), dim=0)[:,t]
-            assert(len(ep_fail_q_std)==1, 'Unexpected ep_fail_q_std shape {}'.format(ep_fail_q_std.shape))
-            fail_mean = torch.mean(ep_fail_q_std)
-            fail_std = torch.std(ep_fail_q_std)
-            fail_w = torch.exp(torch.pow(fail_mean-q_std_topk,2)/fail_std).item()
-
-            uncertainty_weight = success_w / (success_w+fail_w)
-            model_act_prob = uncertainty_weight*model_act_prob
-        '''
-
         if not use_model:
             all_actions = actions_bc
             all_value = value_bc
         else:
             all_actions = actions_learned[0]
             all_value = value_learn
-        #all_actions = torch.cat([actions_bc, actions_learned[0]], dim=0)
-        #all_value = torch.cat([value_bc, value_learn], dim=0)
         
         elite_actions, score = self.compute_elite_actions(all_actions, all_value, self.cfg.num_elites)
 
@@ -484,13 +420,6 @@ class TDMPC:
         # Outputs
         score = score.cpu().numpy()
         action = elite_actions[np.random.choice(np.arange(score.shape[0]), p=score)]
-
-        #q_stats = {'max_q_bc': value_bc.max().item(),
-        #           'max_model_min': G_min.max().item(),
-        #           'max_model_mean': G_mean.max().item(),
-        #           'model_std_best': q_std_best,
-        #           'model_std_topk': q_std_topk,
-        #           'uncertainty_weight': uncertainty_weight}
 
         if not eval_mode:
             action += out_std * torch.randn(self.cfg.action_dim, device=self.device)
@@ -562,28 +491,16 @@ class TDMPC:
         self.model.track_learn_encoder_grad(False)
 
         for i in range(len(self.model._acs)):
-            self.model._acs[i].track_pi_grad(False)   
-            #self.model._acs[i].track_q_grad(False)        
+            self.model._acs[i].track_pi_grad(False)          
         
         self.model_target.track_encoder_grad(False)
         self.model_target.track_learn_encoder_grad(False)
         
         for i in range(len(self.model_target._acs)):
             self.model_target._acs[i].track_pi_grad(False)
-            #self.model_target._acs[i].track_q_grad(False)
 
     def unfreeze_online(self):
-        #self.model.track_learn_encoder_grad(True)
-        #for i in range(1,len(self.model._acs)):
-        #    self.model._acs[i].track_pi_grad(True)  
-        #for i in range(len(self.model._acs)):
-        #    self.model._acs[i].track_q_grad(True)  
-
-        #self.model_target.track_learn_encoder_grad(True)
-        #for i in range(1,len(self.model_target._acs)):
-        #    self.model_target._acs[i].track_pi_grad(True)        
-        #for i in range(len(self.model_target._acs)):
-        #    self.model_target._acs[i].track_q_grad(True)    
+  
         self.model.track_learn_encoder_grad(True)
         for i in range(1,len(self.model._acs)):
             self.model._acs[i].track_pi_grad(True)          

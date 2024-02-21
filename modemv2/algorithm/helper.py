@@ -19,6 +19,7 @@ from tasks.franka import recompute_real_rwd, FrankaTask
 from robohive.utils.tensor_utils import stack_tensor_dict_list
 from robohive.logger.grouped_datasets import Trace
 import git
+import hydra
 
 __REDUCE__ = lambda b: "mean" if b else "none"
 
@@ -448,7 +449,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
     return episodes
 
 def get_demos(cfg, env):
-    demo_dir = git.Repo(os.getcwd(), search_parent_directories=True).working_tree_dir + "/modemv2"
+    demo_dir = git.Repo(hydra.utils.get_original_cwd(), search_parent_directories=True).working_tree_dir + "/modemv2"
     fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
     if len(fps) == 0:
         fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))

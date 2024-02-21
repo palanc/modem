@@ -226,7 +226,7 @@ def train(cfg: dict):
     work_dir = Path(repo_path) / "modemv2" / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
 
-    episode_dir = repo_path + f"modemv2/episodes/{cfg.task}/{cfg.exp_name}/{str(cfg.seed)}" 
+    episode_dir = repo_path + f"/modemv2/episodes/{cfg.task}/{cfg.exp_name}/{str(cfg.seed)}" 
     if (not os.path.isdir(episode_dir)):
         os.makedirs(episode_dir)
 

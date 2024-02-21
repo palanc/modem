@@ -448,7 +448,7 @@ def trace2episodes(cfg, env, trace, exclude_fails=False, is_demo=False):
     return episodes
 
 def get_demos(cfg, env):
-    demo_dir = git.Repo('.', search_parent_directories=True).working_tree_dir + "/modemv2"
+    demo_dir = git.Repo(os.getcwd(), search_parent_directories=True).working_tree_dir + "/modemv2"
     fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.pickle"))
     if len(fps) == 0:
         fps = glob.glob(str(Path(demo_dir) / "demonstrations" / f"{cfg.task}/*.h5"))

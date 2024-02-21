@@ -15,6 +15,7 @@ from robohive.utils.quat_math import mat2quat
 import time
 from pathlib import Path
 import git
+import os
 
 class FrankaTask(Enum):
     BinPick=1
@@ -303,7 +304,7 @@ class FrankaWrapper(gym.Wrapper):
     def post_process_task(self, obs, states, eval_mode=True):
         from modemv2.utils.move_utils import update_grasps, check_grasp_success, check_reorient_success
         assert(self.cfg.real_robot)
-        logging_dir = git.Repo('.', search_parent_directories=True).working_tree_dir + "/modemv2"
+        logging_dir = git.Repo(os.getcwd(), search_parent_directories=True).working_tree_dir + "/modemv2"
         success = False
         rewards = None
         retry_episode = False

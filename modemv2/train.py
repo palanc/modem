@@ -222,7 +222,7 @@ def train(cfg: dict):
     cfg = parse_cfg(cfg)
     set_seed(cfg.seed)
     
-    repo_path = git.Repo('.', search_parent_directories=True).working_tree_dir
+    repo_path = git.Repo(os.getcwd(), search_parent_directories=True).working_tree_dir
     work_dir = Path(repo_path) / "modemv2" / "logs" / cfg.task / cfg.exp_name / str(cfg.seed)
     print(colored("Work dir:", "yellow", attrs=["bold"]), work_dir)
 

@@ -1,8 +1,8 @@
-# MoDem: Accelerating Visual Model-Based Reinforcement Learning with Demonstrations
+# MoDem-V2: Visuo-Motor World Models for Real-World Robot Manipulation
 
-Original PyTorch implementation of [MoDem: Accelerating Visual Model-Based Reinforcement Learning with Demonstrations](#) by
+Original PyTorch implementation of [ MoDem-V2: Visuo-Motor World Models for Real-World Robot Manipulation](#) by
 
-[Nicklas Hansen](https://nicklashansen.github.io/), [Yixin Lin](https://yixinlin.net/), [Hao Su](https://cseweb.ucsd.edu/~haosu/), [Xiaolong Wang](https://xiaolonw.github.io/), [Vikash Kumar](https://vikashplus.github.io/), [Aravind Rajeswaran](https://aravindr93.github.io/) (Meta AI, UC San Diego)
+[Patrick Lancaster](https://palanc.github.io), [Nicklas Hansen](https://nicklashansen.github.io/), [Aravind Rajeswaran](https://aravindr93.github.io/) [Vikash Kumar](https://vikashplus.github.io/) (Meta AI, UC San Diego)
 
 <p align="center">
   <img width="19.5%" src="https://i.imgur.com/9zGHWnd.gif">

@@ -11,8 +11,7 @@ import matplotlib.pyplot as plt
 from enum import Enum 
 from robohive.envs.arms.bin_pick_v0 import BinPickPolicy
 from robohive.utils.quat_math import mat2quat
-from modem.utils.move_utils import update_grasps, check_grasp_success, open_gripper, check_reorient_success
-from modem.utils.color_threshold import ColorThreshold
+
 import time
 from pathlib import Path
 import git
@@ -73,6 +72,7 @@ class FrankaWrapper(gym.Wrapper):
                 self.RESET_PI_THRESH = 1
                 self.reset_pi = BinPickPolicy(env=self.env, seed=self.cfg.seed, is_reset_policy=True)
             elif cfg.task.startswith('franka-FrankaPlanarPush') or cfg.task.startswith('franka-FrankaBinPush'):
+                from modem.utils.color_threshold import ColorThreshold
                 self.col_thresh = ColorThreshold(cam_name=self.camera_names[0], 
                                                 left_crop=self.cfg.success_mask_left, 
                                                 right_crop=self.cfg.success_mask_right, 
@@ -301,6 +301,7 @@ class FrankaWrapper(gym.Wrapper):
         return self.env
 
     def post_process_task(self, obs, states, eval_mode=True):
+        from modem.utils.move_utils import update_grasps, check_grasp_success, check_reorient_success
         assert(self.cfg.real_robot)
         logging_dir = git.Repo('.', search_parent_directories=True).working_tree_dir + "/modem"
         success = False

@@ -123,4 +123,4 @@ hydra:
         mem_gb: 700
         name: ${hydra.job.name}
         submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-        partition: learnfair
+        partition: learnaccel

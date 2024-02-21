@@ -1,4 +1,4 @@
-name: modem
+name: modemv2
 channels:
   - pytorch
   - anaconda
@@ -6,8 +6,8 @@ channels:
   - defaults
 dependencies:
   - python=3.9.0
-  - pytorch=1.11.0
-  - torchvision=0.12.0
+  - pytorch=1.10.0
+  - torchvision=0.11.1
   - cudatoolkit=11.3.1
   - glew=2.1.0=h9c3ff4c_2
   - glib=2.69.1=h4ff587b_1
@@ -20,7 +20,7 @@ dependencies:
     - kornia==0.6.5
     - termcolor==1.1.0
     - omegaconf==2.1.1
-    - gym==0.21.0
+    - gym==0.13.0
     - pandas==1.4.2
     - wandb==0.12.19
     - moviepy==1.0.3
@@ -29,7 +29,7 @@ dependencies:
     - imageio-ffmpeg==0.4.7
     - git+https://github.com/rlworkgroup/metaworld.git@master#egg=metaworld
     - mujoco==2.3.0
-    - mujoco-py==2.1.2.14
+    - mujoco-py<2.2,>=2.1
     - lxml==4.9.1
     - pyparsing==2.4.7
     - hydra-core==1.1.1
@@ -42,3 +42,7 @@ dependencies:
     - transforms3d==0.4.1
     - git+https://github.com/aravindr93/mjrl.git
     - dm-control==1.0.8
+    - matplotlib
+    - opencv-python
+    - scikit-learn
+    - h5py==3.7.0

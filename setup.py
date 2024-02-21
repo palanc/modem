@@ -19,7 +19,7 @@ def package_files(directory):
 extra_files = package_files('modem')
 
 setup(
-    name='modem_ace',
+    name='modemv2',
     version='0.1',
     packages=find_packages(),
     package_data={"": extra_files},

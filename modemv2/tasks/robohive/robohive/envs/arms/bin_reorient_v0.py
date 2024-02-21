@@ -186,7 +186,7 @@ class BinReorientV0(env_base.MujocoEnv):
         obs_dict['grasp_pos'] = sim.data.site_xpos[self.grasp_sid].copy()
         obs_dict['grasp_rot'] = mat2quat(self.sim.data.site_xmat[self.grasp_sid].reshape(3,3).transpose())
         obs_dict['object_err'] = sim.data.site_xpos[self.object_sid]-sim.data.site_xpos[self.hand_sid]
-        obs_dict['target_err'] = np.array([np.abs(self.sim.data.site_xmat[self.object_sid][-1] - 1.0)],dtype=np.float)
+        obs_dict['target_err'] = np.array([np.abs(self.sim.data.site_xmat[self.object_sid][-1] - 1.0)],dtype=float)
         obs_dict['object_rot'] = self.sim.data.site_xmat[self.object_sid].copy()
         return obs_dict
 

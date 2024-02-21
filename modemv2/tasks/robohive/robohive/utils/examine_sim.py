@@ -25,11 +25,11 @@ def main(sim_path, qpos, ctrl, horizon):
 
     while sim.data.time<horizon:
         if qpos is not None:
-            sim.data.qpos[:] = np.array(qpos.split(','), dtype=np.float)
+            sim.data.qpos[:] = np.array(qpos.split(','), dtype=float)
             sim.forward()
             sim.data.time += sim.model.opt.timestep
         elif ctrl is not None:
-            sim.data.ctrl[:] = np.array(ctrl.split(','), dtype=np.float)
+            sim.data.ctrl[:] = np.array(ctrl.split(','), dtype=float)
             sim.step()
         viewer.render()
 

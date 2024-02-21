@@ -9,7 +9,7 @@ then
     BATCH_SIZE="batch_size=256"
     SEED_STEPS="seed_steps=5000"
     EVAL_EPISODES="eval_episodes=30"
-    MIX_SCHEDULE="mix_schedule='\"linear(0.0,1.0,5000,25000)\"'"    
+    MIX_SCHEDULE="mix_schedule=\"linear(0.0,1.0,5000,25000)\""    
     EVAL_FREQ="eval_freq=2500"
     LAUNCHER="hydra/launcher=local"    
 elif [ $1 = 1 ]
@@ -21,7 +21,7 @@ then
     BATCH_SIZE="batch_size=256"
     SEED_STEPS="seed_steps=5000"
     EVAL_EPISODES="eval_episodes=30"
-    MIX_SCHEDULE="mix_schedule='\"linear(0.0,1.0,5000,25000)\"'"    
+    MIX_SCHEDULE="mix_schedule=\"linear(0.0,1.0,5000,25000)\""    
     EVAL_FREQ="eval_freq=2500"
     LAUNCHER="hydra/launcher=slurm"
 else

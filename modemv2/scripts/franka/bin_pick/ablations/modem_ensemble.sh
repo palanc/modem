@@ -11,7 +11,7 @@ then
     SEED_STEPS="seed_steps=5000"
     EVAL_EPISODES="eval_episodes=30"
     EVAL_FREQ="eval_freq=2500"
-    MIX_SCHEDULE="mix_schedule='\"linear(0.0,1.0,0,2500)\"'"
+    MIX_SCHEDULE="mix_schedule=\"linear(0.0,1.0,0,2500)\""
 elif [ $1 = 1 ]
 then
     MULTI="-m"
@@ -23,7 +23,7 @@ then
     SEED_STEPS="seed_steps=5000"
     EVAL_EPISODES="eval_episodes=30"
     EVAL_FREQ="eval_freq=2500"
-    MIX_SCHEDULE="mix_schedule='\"linear(0.0,1.0,0,2500)\"'"
+    MIX_SCHEDULE="mix_schedule=\"linear(0.0,1.0,0,2500)\""
 else
     MULTI=""
     NAME="exp_name=bin_pick_ensemble_test"

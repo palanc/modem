@@ -101,7 +101,7 @@ class FrankaWrapper(gym.Wrapper):
         
         if self.franka_task == FrankaTask.BinReorient:
             obj_err = self.env.sim.data.site_xpos[self.env.object_sid]-self.env.sim.data.site_xpos[self.env.hand_sid]
-            tar_err = np.array([np.abs(self.env.sim.data.site_xmat[self.env.object_sid][-1] - 1.0)],dtype=np.float)
+            tar_err = np.array([np.abs(self.env.sim.data.site_xmat[self.env.object_sid][-1] - 1.0)],dtype=float)
         else:
             obj_err = self.env.sim.data.site_xpos[self.env.object_sid]-self.env.sim.data.site_xpos[self.env.grasp_sid]
             tar_err = self.env.sim.data.site_xpos[self.env.target_sid]-self.env.sim.data.site_xpos[self.env.object_sid]

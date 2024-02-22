@@ -40,7 +40,7 @@ If you use this repo in your research, please consider citing the paper as follo
 
 We assume that your machine has a CUDA-enabled GPU, a local copy of MuJoCo 2.1.x installed, and at least 80GB of memory. Then, create a conda environment with `conda env create -f environment.yml`, and add `modemv2/tasks/robohive` to your `PYTHONPATH`. Activate the new environment with `conda activate modemv2` and then install mujoco_py with `pip install -e ./mujoco_py`. You will also need to configure `wandb_entity` in `modemv2/cfgs/config.yaml`. Demonstrations are made available [here](https://github.com/palanc/modem/releases/tag/0.1.0); untar them into `modemv2/demonstrations`. 
 
-Launch MoDem-V2 training with the scripts in `scripts/franka` (with your working directory being `modemv2/modemv2`). For example, to train a single seed of MoDem-V2 on the bin picking task:
+Launch MoDem-V2 training with the scripts in `scripts/franka`. Note that the scripts should be executed from the `modemv2` directory. For example, to train a single seed of MoDem-V2 on the bin picking task:
 ```
 sh scripts/franka/bin_pick/modemv2.sh
 ```

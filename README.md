@@ -15,10 +15,10 @@ Original PyTorch implementation of [ MoDem-V2: Visuo-Motor World Models for Real
 
 ## Method
 
-Our model-based method, **MoDem**, solves challenging visuo-motor control tasks with sparse rewards and high-dimensional action spaces in **100K** interaction steps given only **5** demonstrations.
+**MoDem-V2** combines the sample efficiency of the original **MoDem** with conservative exploration in order to quickly and safely learn manipulation skills on real robots.
 
 <p align="center">
-  <img width="80%" src="https://i.imgur.com/dsdDsSl.png">
+  <img width="80%" src="https://i.imgur.com/dfaX9fB.gif">
 </p>
 
 

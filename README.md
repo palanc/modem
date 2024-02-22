@@ -27,38 +27,35 @@ Original PyTorch implementation of [ MoDem-V2: Visuo-Motor World Models for Real
 If you use this repo in your research, please consider citing the paper as follows:
 
 ```
-@article{hansen2022modem,
-  title={MoDem: Accelerating Visual Model-Based Reinforcement Learning with Demonstrations},
-  author={Nicklas Hansen and Yixin Lin and Hao Su and Xiaolong Wang and Vikash Kumar and Aravind Rajeswaran},
-  journal={arXiv preprint},
-  year={2022}
+@article{lancaster2023modem,
+  title={MoDem-V2: Visuo-Motor World Models for Real-World Robot Manipulation},
+  author={Lancaster, Patrick and Hansen, Nicklas and Rajeswaran, Aravind and Kumar, Vikash},
+  journal={arXiv preprint arXiv:2309.14236},
+  year={2023}
 }
 ```
 
 
 ## Instructions
 
-We assume that your machine has a CUDA-enabled GPU, a local copy of MuJoCo 2.1.x installed (required for the Adroit/Meta-World domains), and at least 80GB of memory. Then, create a conda environment with `conda env create -f environment.yml`, and add `/<path>/<to>/<your>/modem/tasks/mj_envs` to your `PYTHONPATH` (required for the Adroit domain). No additional setup required for the DMControl domain. You will also need to configure `wandb` and your demonstration/logging directories in `cfgs/config.yaml`. Demonstrations are made available [here](https://github.com/facebookresearch/modem/releases/tag/v.0.1.0). Once setup is complete, you should be able to run the following commands.
+We assume that your machine has a CUDA-enabled GPU, a local copy of MuJoCo 2.1.x installed, and at least 80GB of memory. Then, create a conda environment with `conda env create -f environment.yml`, and add `modemv2/tasks/robohive` to your `PYTHONPATH`. Activate the new environment with `conda activate modemv2` and then install mujoco_py with `pip install -e ./mujoco_py`. You will also need to configure `wandb_entity` in `modemv2/cfgs/config.yaml`. Demonstrations are made available [here](https://github.com/palanc/modem/releases/tag/0.1.0); untar them into `modemv2/demonstrations`. 
 
-To train MoDem on a task from **Adroit**:
-
+Launch MoDem-V2 training with the scripts in `modemv2/scripts/franka`. For example, to train a single seed of MoDem-V2 on the bin picking task:
 ```
-python train.py suite=adroit task=adroit-door
-```
-
-To train MoDem on a task from **Meta-World**:
-
-```
-python train.py suite=mw task=mw-assembly
+sh scripts/franka/bin_pick/modemv2.sh
 ```
 
-To train MoDem on a task from **DMControl**:
-
+Append an argument of 1 in order to train 5 seeds on the cluster, for example:
 ```
-python train.py suite=dmcontrol task=quadruped-run
+sh scripts/franka/bin_pick/modemv2.sh 1
+```
+
+Alternatively, append an argument of 2 in order to truncate each stage of training and verify that the code has been setup correctly, for example:
+```
+sh scripts/franka/bin_pick/modemv2.sh 2
 ```
 
 
 ## License & Acknowledgements
 
-This codebase is based on the original [TD-MPC](https://github.com/nicklashansen/tdmpc) implementation. MoDem, TD-MPC and [Meta-World](https://github.com/rlworkgroup/metaworld) are licensed under the MIT license. [MuJoCo](https://github.com/deepmind/mujoco), [DeepMind Control Suite](https://github.com/deepmind/dm_control), and [mj_envs](https://github.com/vikashplus/mj_envs) (Adroit) are licensed under the Apache 2.0 license. We thank the [DrQv2](https://github.com/facebookresearch/drqv2) authors for their implementation of DMControl wrappers.
+This codebase is based on the original [MoDem](https://github.com/facebookresearch/modem) implementation. MoDem-V2 and MoDem are licensed under the MIT license. [MuJoCo](https://github.com/deepmind/mujoco) and [robohive](https://github.com/vikashplus/robohive) are licensed under the Apache 2.0 license.

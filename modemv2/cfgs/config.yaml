@@ -48,7 +48,7 @@ mlp_dim: 512
 latent_dim: 50
 
 # wandb (required: fill in your details)
-wandb_project: camera-ready-test
+wandb_project: modemv2
 wandb_entity: palanc
 
 # misc

@@ -18,7 +18,7 @@ Original PyTorch implementation of [ MoDem-V2: Visuo-Motor World Models for Real
 **MoDem-V2** combines the sample efficiency of the original **MoDem** with conservative exploration in order to quickly and safely learn manipulation skills on real robots.
 
 <p align="center">
-  <img width="80%" src="https://i.imgur.com/dBAabv6.gif">
+  <img width="80%" src="https://i.imgur.com/mC2K8Qj.jpeg">
 </p>
 
 

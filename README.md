@@ -5,12 +5,11 @@ Original PyTorch implementation of [ MoDem-V2: Visuo-Motor World Models for Real
 [Patrick Lancaster](https://palanc.github.io), [Nicklas Hansen](https://nicklashansen.github.io/), [Aravind Rajeswaran](https://aravindr93.github.io/) [Vikash Kumar](https://vikashplus.github.io/) (Meta AI, UC San Diego)
 
 <p align="center">
-  <img width="19.5%" src="https://i.imgur.com/9zGHWnd.gif">
-  <img width="19.5%" src="https://i.imgur.com/P4y8x6v.gif">
-  <img width="19.5%" src="https://i.imgur.com/6gswKaN.gif">
-  <img width="19.5%" src="https://i.imgur.com/XyGakRx.gif">
-  <img width="19.5%" src="https://i.imgur.com/ewoSmCk.gif">
-   <a href="#">[Paper]</a>&emsp;<a href="https://nicklashansen.github.io/modemrl">[Website]</a>
+  <img width="24.5%" src="https://i.imgur.com/X5jL6eq.gif">
+  <img width="24.5%" src="https://i.imgur.com/IdAassv.gif">
+  <img width="24.5%" src="https://i.imgur.com/nATNRHA.gif">
+  <img width="24.5%" src="https://i.imgur.com/o8bPihp.gif">
+   <a href="https://arxiv.org/abs/2309.14236">[Paper]</a>&emsp;<a href="https://sites.google.com/view/modem-v2">[Website]</a>
 </p>
 
 
